@@ -5,14 +5,17 @@ import websockets
 import time
 import platform
 import os
+import tempfile # Added for temporary directory
 import urllib.request # Added for fetching version info
 import urllib.error   # Added for URLError exception
 
 # --- Settings ---
 # Modify the Edge path according to your environment
 EDGE_PATH = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-# Temporary debugging profile directory
-DEBUG_PROFILE_DIR = os.path.join(os.getcwd(), "edge_debug_profile")
+# Debugging profile directory.
+# Defaults to a temporary directory. Set to None to use the default Edge profile.
+# DEBUG_PROFILE_DIR = None # Example: Use default profile
+DEBUG_PROFILE_DIR = os.path.join(tempfile.gettempdir(), "edge_debug_profile_temp")
 DEBUGGING_PORT = 9222
 COPILOT_URL = "https://copilot.microsoft.com/"
 WEBSOCKET_URL_FILTER = "wss://copilot.microsoft.com/c/api/chat?api-version=2"
@@ -310,11 +313,16 @@ async def main():
         print("This script is designed for Windows.")
         return
 
-    # Create debug profile directory
-    if not os.path.exists(DEBUG_PROFILE_DIR):
-        os.makedirs(DEBUG_PROFILE_DIR)
-        print(f"Created temporary profile directory: {DEBUG_PROFILE_DIR}")
-
+    # Create debug profile directory if specified and doesn't exist
+    if DEBUG_PROFILE_DIR and not os.path.exists(DEBUG_PROFILE_DIR):
+        try:
+            os.makedirs(DEBUG_PROFILE_DIR)
+            print(f"Created temporary profile directory: {DEBUG_PROFILE_DIR}")
+        except OSError as e:
+            print(f"Warning: Could not create profile directory {DEBUG_PROFILE_DIR}: {e}")
+            # Decide if this is fatal or if we should proceed without a profile dir
+            # For now, let's proceed, Edge might handle it or fail later.
+    
     # Start Edge in debug mode
     print(f"Starting Edge with debugging on port {DEBUGGING_PORT}...")
     edge_process = None
@@ -322,7 +330,6 @@ async def main():
         edge_args = [
             EDGE_PATH,
             f"--remote-debugging-port={DEBUGGING_PORT}",
-            f"--user-data-dir={DEBUG_PROFILE_DIR}", # Use temporary profile
             "--no-first-run",
             "--no-default-browser-check",
             "--no-restore-session-state", # Prevent session restore prompt
@@ -330,6 +337,9 @@ async def main():
             "--auto-open-devtools-for-tabs" # Open DevTools automatically
             # COPILOT_URL # Opening URL on startup is possible, but controlling via CDP is more reliable
         ]
+        # Conditionally add the user data directory argument
+        if DEBUG_PROFILE_DIR:
+            edge_args.append(f"--user-data-dir={DEBUG_PROFILE_DIR}")
         # Use subprocess.list2cmdline for safer argument joining on Windows if needed for printing,
         # but passing the list directly to Popen is generally safer.
         print(f"Starting Edge with args: (see list)") # Avoid potential quoting issues in print
