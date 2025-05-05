@@ -334,7 +334,8 @@ async def main():
             "--no-default-browser-check",
             "--no-restore-session-state", # Prevent session restore prompt
             "--restore-last-session=false", # Add another flag to prevent restore
-            "--auto-open-devtools-for-tabs" # Open DevTools automatically
+            "--auto-open-devtools-for-tabs", # Open DevTools automatically
+            "--disable-session-crashed-bubble" # Disable the "Restore pages" bubble
             # COPILOT_URL # Opening URL on startup is possible, but controlling via CDP is more reliable
         ]
         # Conditionally add the user data directory argument
