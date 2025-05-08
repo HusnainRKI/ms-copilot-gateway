@@ -24,6 +24,12 @@ from copilot_client import CopilotClient # Import the new client
 # Global CopilotClient instance
 copilot_client_instance: Optional[CopilotClient] = None
 
+# --- Application Settings ---
+class AppSettings(BaseModel): # Using Pydantic for potential future validation/structure
+    message_mode: str = "last" # Default value
+
+settings = AppSettings()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global copilot_client_instance
@@ -218,33 +224,54 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     # Extract the last user message as the prompt
     # Handle complex content field (string or list of text blocks)
     processed_prompt_str = ""
-    user_message_to_process = None
 
-    # Find the last user message
-    for msg_idx in range(len(request_data.messages) - 1, -1, -1):
-        if request_data.messages[msg_idx].role == "user":
-            user_message_to_process = request_data.messages[msg_idx]
-            break
-    
-    if not user_message_to_process:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user message found in the request.")
+    print(f"Processing messages with mode: {settings.message_mode}")
 
-    if isinstance(user_message_to_process.content, str):
-        processed_prompt_str = user_message_to_process.content
-    elif isinstance(user_message_to_process.content, list):
-        # Concatenate text from all text blocks
-        for block in user_message_to_process.content:
-            if isinstance(block, TextContentBlock) and block.type == "text":
-                processed_prompt_str += block.text + "\n"
-            elif isinstance(block, dict) and block.get("type") == "text": # Handle if not fully parsed to TextContentBlock by Pydantic yet
-                 processed_prompt_str += block.get("text","") + "\n"
-        processed_prompt_str = processed_prompt_str.strip()
-    else:
-        # This case should ideally be caught by Pydantic validation if `content` is not str or List[TextContentBlock]
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid format for message content: {type(user_message_to_process.content)}")
+    if settings.message_mode == "last":
+        user_message_to_process = None
+        for message in reversed(request_data.messages): # Iterate from the end
+            if message.role == "user":
+                user_message_to_process = message
+                break
+        
+        if not user_message_to_process:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No user message found in 'last' mode.")
+
+        # Process content of the found user message
+        if isinstance(user_message_to_process.content, str):
+            processed_prompt_str = user_message_to_process.content.strip()
+        elif isinstance(user_message_to_process.content, list):
+            temp_content_list = []
+            for block in user_message_to_process.content:
+                if isinstance(block, TextContentBlock) and block.type == "text":
+                    temp_content_list.append(block.text)
+                elif isinstance(block, dict) and block.get("type") == "text": # Handle if not fully parsed
+                    temp_content_list.append(block.get("text", ""))
+            processed_prompt_str = "\n".join(temp_content_list).strip()
+        # processed_prompt_str could be empty if content was empty or only whitespace.
+        # The generic check for empty prompt later will catch this.
+
+    elif settings.message_mode == "all":
+        # Concatenate all messages (existing logic)
+        for message in request_data.messages:
+            # Optionally, add role prefix, e.g., f"{message.role}: "
+            current_content_str = ""
+            if isinstance(message.content, str):
+                current_content_str = message.content
+            elif isinstance(message.content, list):
+                for block in message.content:
+                    if isinstance(block, TextContentBlock) and block.type == "text":
+                        current_content_str += block.text + "\n" # Add newline after each block's text
+                    elif isinstance(block, dict) and block.get("type") == "text": # Handle if not fully parsed
+                        current_content_str += block.get("text", "") + "\n" # Add newline
+                current_content_str = current_content_str.strip() # Strip trailing newline from this message's content
+            
+            if current_content_str: # Add non-empty content
+                processed_prompt_str += current_content_str + "\n" # Add a newline between messages
+    processed_prompt_str = processed_prompt_str.strip() # Remove trailing newline
 
     if not processed_prompt_str: # Check if after processing, the prompt is empty
-         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty prompt after processing user message content.")
+         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty prompt after processing all message contents.")
 
     # Ensure prompt is a string before passing to other functions
     final_prompt: str = processed_prompt_str
@@ -337,12 +364,20 @@ async def main():
     )
     parser.add_argument("--host", type=str, default="0.0.0.0", help="Host for the server (default: 0.0.0.0).")
     parser.add_argument("--port", type=int, default=8000, help="Port for the server (default: 8000).")
+    parser.add_argument(
+        "--message-mode",
+        type=str,
+        choices=["last", "all"],
+        default="last", # Default is 'last'
+        help="Defines how messages are processed: 'last' (only the last user message) or 'all' (all messages concatenated)."
+    )
     args = parser.parse_args()
 
     if args.stdio:
         # Stdio mode: Manually manage client lifecycle
         print("Initializing Copilot client for stdio mode...")
         # Note: copilot_client_instance is for FastAPI lifespan, use a local one here.
+        # stdio mode does not use the global 'settings.message_mode' from command line args for server.
         stdio_client = CopilotClient(
             edge_path=EDGE_PATH,
             debug_profile_dir=DEBUG_PROFILE_DIR,
@@ -371,6 +406,8 @@ async def main():
             print("Stdio mode client cleanup complete.")
     else:
         # Server mode: FastAPI app with lifespan will handle client
+        settings.message_mode = args.message_mode # Set the global setting for server mode
+        print(f"Message processing mode set to: {settings.message_mode}")
         print(f"Starting ChatGPT-compatible server on http://{args.host}:{args.port}")
         # 'app' is defined globally with lifespan; uvicorn uses it.
         # The global 'copilot_client_instance' will be managed by 'lifespan'.

@@ -371,7 +371,7 @@ class CopilotClient:
                         # [Received] Server provides follow-up suggestions (optional)
                         # Payload: {"event":"suggestedFollowups","messageId":"cunqiwyXHxKALffniSEnf","suggestions":["Can you show me what you can do?",...],"id":"11"}
                         # ---------------------------------------------------------------------
-                        if params.get("url") == self.websocket_url_filter:
+                        if params.get("url") and params.get("url").startswith(self.websocket_url_filter):
                             target_websocket_request_id = params.get("requestId")
                             print(f"\n+++ Target WebSocket created. Request ID: {target_websocket_request_id} +++\n")
 

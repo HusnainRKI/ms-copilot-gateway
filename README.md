@@ -53,8 +53,15 @@ This mode starts an HTTP server compatible with the OpenAI Chat Completions API.
     ```bash
     python main.py --host 127.0.0.1 --port 8888
     ```
-3.  The server will launch Edge, navigate to Copilot, and be ready to accept API requests.
-4.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
+3.  To control how user messages from the client request are processed by the gateway before sending to Copilot, use the `--message-mode` option:
+    *   `last` (default): Only the content of the last message with `role: "user"` is sent to Copilot.
+    *   `all`: The content of all messages in the request are concatenated and sent to Copilot as a single prompt.
+    Example:
+    ```bash
+    python main.py --message-mode all --port 8888
+    ```
+4.  The server will launch Edge, navigate to Copilot, and be ready to accept API requests.
+5.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
 
 ### Stdio REPL Mode
 
