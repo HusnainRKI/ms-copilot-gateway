@@ -5,6 +5,7 @@ import websockets
 import time
 import platform
 import os
+import sys # Added for stdin/stdout
 import tempfile # Added for temporary directory
 import urllib.request # Added for fetching version info
 import urllib.error   # Added for URLError exception
@@ -19,7 +20,7 @@ DEBUG_PROFILE_DIR = os.path.join(tempfile.gettempdir(), "edge_debug_profile_temp
 DEBUGGING_PORT = 9222
 COPILOT_URL = "https://copilot.microsoft.com/"
 WEBSOCKET_URL_FILTER = "wss://copilot.microsoft.com/c/api/chat?api-version=2"
-TEST_MESSAGE = "This is an automated test message."
+# TEST_MESSAGE = "This is an automated test message." # Will be replaced by stdin
 # Selector modification may be required if Copilot's UI structure changes
 USER_INPUT_SELECTOR = "textarea#userInput"
 # Submit button selector (simple version)
@@ -94,8 +95,8 @@ async def attach_to_target(ws, target_id):
             print(f"Error receiving message during attach: {e}")
             return None
 
-async def monitor_copilot_interaction(ws, session_id):
-    """Interact with the Copilot page and monitor WebSocket communication"""
+async def monitor_copilot_interaction(ws, session_id, user_message: str):
+    """Interact with the Copilot page and monitor WebSocket communication, yielding responses."""
     # Enable necessary CDP domains
     await send_cdp_command(ws, "Page.enable", {}, session_id=session_id)
     await send_cdp_command(ws, "Network.enable", {}, session_id=session_id)
@@ -111,8 +112,8 @@ async def monitor_copilot_interaction(ws, session_id):
     print("Waiting for page load (3s)...")
     await asyncio.sleep(3) # Reduced wait time
 
-    # --- Simulate typing the test message using CDP Input domain ---
-    print(f"Simulating typing: '{TEST_MESSAGE}'")
+    # --- Simulate typing the user message using CDP Input domain ---
+    print(f"Simulating typing: '{user_message}'")
     # 1. Get document root node ID
     doc_root_id = await send_cdp_command(ws, "DOM.getDocument", {"depth": -1}, session_id=session_id)
     root_node_id = None
@@ -176,7 +177,7 @@ async def monitor_copilot_interaction(ws, session_id):
 
             # 4. Insert text using Input.insertText
             print("Inserting text...")
-            insert_text_id = await send_cdp_command(ws, "Input.insertText", {"text": TEST_MESSAGE}, session_id=session_id)
+            insert_text_id = await send_cdp_command(ws, "Input.insertText", {"text": user_message}, session_id=session_id)
             print("Text insertion command sent.")
             # Wait for text insertion to process and UI to potentially update
             await asyncio.sleep(1)
@@ -272,7 +273,7 @@ async def monitor_copilot_interaction(ws, session_id):
 
                 # WebSocket frame received event (filter by requestId & extract appendText)
                 elif method == "Network.webSocketFrameReceived":
-                     if params.get("requestId") == target_websocket_request_id:
+                    if params.get("requestId") == target_websocket_request_id:
                         try:
                             payload_str = params.get('response', {}).get('payloadData', '{}')
                             payload_json = json.loads(payload_str)
@@ -280,18 +281,21 @@ async def monitor_copilot_interaction(ws, session_id):
 
                             if event_type == "appendText":
                                 response_text = payload_json.get("text", "")
-                                # Print response chunk directly, end='' prevents extra newlines
-                                print(response_text, end='', flush=True)
+                                # Yield response chunk directly
+                                yield response_text
                             elif event_type: # Print other known event types for context, add newline before
-                                print(f"\n[Received Event: {event_type}]")
+                                print(f"\n[Received Event: {event_type}]", flush=True)
+                                if event_type == "done":
+                                    print("Response complete (received 'done' event).")
+                                    return # Stop monitoring and return to REPL
                             # else: # Optional: Handle cases with no event type if needed
-                            #    print(f"\n[Received Payload: {payload_str}]")
+                            #     print(f"\n[Received Payload: {payload_str}]")
 
                         except json.JSONDecodeError:
                             # Handle cases where payload is not valid JSON (e.g., binary frames if any)
-                            print("\n[Received Event: (Non-JSON Payload)]")
+                            print("\n[Received Event: (Non-JSON Payload)]", flush=True)
                         except Exception as e:
-                             print(f"\n[Error processing Received Event: {e}]")
+                            print(f"\n[Error processing Received Event: {e}]", flush=True)
 
 
                 # Other events (for debugging - uncomment if needed)
@@ -421,8 +425,37 @@ async def main():
             print("Failed to attach to target page. Exiting.")
             return # Process termination in finally block
 
-        # Start Copilot interaction and monitoring
-        await monitor_copilot_interaction(websocket_connection, session_id)
+        # --- REPL for interacting with Copilot ---
+        print("\nCopilot REPL initialized. Type your message and press Enter.")
+        print("Type 'exit' or 'quit' or press Ctrl+D (EOF) to terminate.")
+        while True:
+            try:
+                sys.stdout.write("> ")
+                sys.stdout.flush()
+                user_input = sys.stdin.readline().strip()
+
+                if not user_input or user_input.lower() in ["exit", "quit"]:
+                    print("\nExiting REPL...")
+                    break
+
+                print(f"Sending to Copilot: {user_input}")
+                async for response_chunk in monitor_copilot_interaction(websocket_connection, session_id, user_input):
+                    sys.stdout.write(response_chunk)
+                    sys.stdout.flush()
+                sys.stdout.write("\n") # Add a newline after the full response
+                sys.stdout.flush()
+
+            except EOFError:
+                print("\nEOF received, exiting REPL...")
+                break
+            except KeyboardInterrupt:
+                print("\nREPL interrupted by user. Type 'exit' or 'quit' to close.")
+                # Allow continuing the REPL or exiting cleanly
+                continue # Or break, depending on desired behavior
+            except Exception as e_repl:
+                print(f"\nError in REPL loop: {e_repl}")
+                # Potentially break or offer to retry depending on the error
+                break # For now, exit on other errors
 
     except ConnectionRefusedError:
         print(f"Connection refused. Is Edge running with --remote-debugging-port={DEBUGGING_PORT}?")
