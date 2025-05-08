@@ -9,6 +9,7 @@ import sys # Added for stdin/stdout
 import tempfile # Added for temporary directory
 import urllib.request # Added for fetching version info
 import urllib.error   # Added for URLError exception
+import argparse # Added for command line argument parsing
 
 # --- Settings ---
 # Modify the Edge path according to your environment
@@ -313,6 +314,15 @@ async def monitor_copilot_interaction(ws, session_id, user_message: str):
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="Run Copilot interaction script either via stdio or as a ChatGPT-compatible server.")
+    parser.add_argument(
+        "--stdio",
+        action="store_true",
+        help="Run in stdin/stdout mode for direct command-line interaction.",
+    )
+    # Add other arguments for server mode later, e.g., --host, --port
+    args = parser.parse_args()
+
     if platform.system() != "Windows":
         print("This script is designed for Windows.")
         return
@@ -425,37 +435,50 @@ async def main():
             print("Failed to attach to target page. Exiting.")
             return # Process termination in finally block
 
-        # --- REPL for interacting with Copilot ---
-        print("\nCopilot REPL initialized. Type your message and press Enter.")
-        print("Type 'exit' or 'quit' or press Ctrl+D (EOF) to terminate.")
-        while True:
-            try:
-                sys.stdout.write("> ")
-                sys.stdout.flush()
-                user_input = sys.stdin.readline().strip()
-
-                if not user_input or user_input.lower() in ["exit", "quit"]:
-                    print("\nExiting REPL...")
-                    break
-
-                print(f"Sending to Copilot: {user_input}")
-                async for response_chunk in monitor_copilot_interaction(websocket_connection, session_id, user_input):
-                    sys.stdout.write(response_chunk)
+        if args.stdio:
+            # --- REPL for interacting with Copilot (stdio mode) ---
+            print("\nCopilot REPL initialized (stdio mode). Type your message and press Enter.")
+            print("Type 'exit' or 'quit' or press Ctrl+D (EOF) to terminate.")
+            while True:
+                try:
+                    sys.stdout.write("> ")
                     sys.stdout.flush()
-                sys.stdout.write("\n") # Add a newline after the full response
-                sys.stdout.flush()
+                    user_input = sys.stdin.readline().strip()
 
-            except EOFError:
-                print("\nEOF received, exiting REPL...")
-                break
+                    if not user_input or user_input.lower() in ["exit", "quit"]:
+                        print("\nExiting REPL...")
+                        break
+
+                    print(f"Sending to Copilot: {user_input}")
+                    async for response_chunk in monitor_copilot_interaction(websocket_connection, session_id, user_input):
+                        sys.stdout.write(response_chunk)
+                        sys.stdout.flush()
+                    sys.stdout.write("\n") # Add a newline after the full response
+                    sys.stdout.flush()
+
+                except EOFError:
+                    print("\nEOF received, exiting REPL...")
+                    break
+                except KeyboardInterrupt:
+                    print("\nREPL interrupted by user. Type 'exit' or 'quit' to close.")
+                    continue
+                except Exception as e_repl:
+                    print(f"\nError in REPL loop: {e_repl}")
+                    break
+        else:
+            # --- ChatGPT-compatible server mode (default) ---
+            print("Starting ChatGPT-compatible server mode...")
+            # TODO: Implement server logic here
+            # For now, we'll just keep the browser connection alive until interrupted
+            print("Server mode placeholder. Press Ctrl+C to exit and close Edge.")
+            try:
+                while True:
+                    await asyncio.sleep(1) # Keep alive
             except KeyboardInterrupt:
-                print("\nREPL interrupted by user. Type 'exit' or 'quit' to close.")
-                # Allow continuing the REPL or exiting cleanly
-                continue # Or break, depending on desired behavior
-            except Exception as e_repl:
-                print(f"\nError in REPL loop: {e_repl}")
-                # Potentially break or offer to retry depending on the error
-                break # For now, exit on other errors
+                print("\nServer mode interrupted by user.")
+            except Exception as e_server:
+                print(f"\nError in server mode placeholder: {e_server}")
+
 
     except ConnectionRefusedError:
         print(f"Connection refused. Is Edge running with --remote-debugging-port={DEBUGGING_PORT}?")
