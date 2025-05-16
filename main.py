@@ -152,33 +152,21 @@ async def stream_response_generator(prompt: str):
 
     try:
         first_chunk = True
+        # Attempt to get response from Copilot client
         async for chunk in copilot_client_instance.send_message_and_get_response(prompt):
             if first_chunk:
-                # Send role for the first chunk if applicable (OpenAI does this)
-                # However, Copilot client directly gives content.
-                # We can simulate the role part if needed.
-                # For now, just send content.
-                # delta_role = ChatCompletionStreamChoiceDelta(role="assistant")
-                # choice_role = ChatCompletionStreamChoice(delta=delta_role)
-                # response_role = ChatCompletionStreamResponse(
-                #     id=message_id_base,
-                #     created=created_time,
-                #     choices=[choice_role]
-                # )
-                # yield f"data: {response_role.model_dump_json()}\n\n"
                 first_chunk = False
-
             delta = ChatCompletionStreamChoiceDelta(content=chunk)
             choice = ChatCompletionStreamChoice(delta=delta)
             response = ChatCompletionStreamResponse(
-                id=message_id_base, # Each chunk can have the same base ID for the request
+                id=message_id_base,
                 created=created_time,
                 choices=[choice]
             )
             yield f"data: {response.model_dump_json()}\n\n"
 
-        # Send the final [DONE] message
-        final_delta = ChatCompletionStreamChoiceDelta() # Empty content for final
+        # If the loop completes without error, send a normal stop
+        final_delta = ChatCompletionStreamChoiceDelta()
         final_choice = ChatCompletionStreamChoice(delta=final_delta, finish_reason="stop")
         final_response = ChatCompletionStreamResponse(
             id=message_id_base,
@@ -187,9 +175,21 @@ async def stream_response_generator(prompt: str):
         )
         yield f"data: {final_response.model_dump_json()}\n\n"
 
-    except Exception as e:
-        print(f"Error during streaming: {e}")
-        error_delta = ChatCompletionStreamChoiceDelta(content=f"Error during streaming: {str(e)}")
+    except RuntimeError as e_runtime: # Catch specific RuntimeError from CopilotClient
+        print(f"RuntimeError during streaming from CopilotClient: {e_runtime}")
+        error_delta = ChatCompletionStreamChoiceDelta(content=f"Error communicating with Copilot: {str(e_runtime)}")
+        error_choice = ChatCompletionStreamChoice(delta=error_delta, finish_reason="error")
+        error_response_obj = ChatCompletionStreamResponse(
+            id=message_id_base,
+            created=created_time,
+            choices=[error_choice]
+        )
+        yield f"data: {error_response_obj.model_dump_json()}\n\n"
+    except Exception as e_general: # Catch any other unexpected errors
+        print(f"Unexpected error during streaming: {e_general}")
+        import traceback
+        traceback.print_exc()
+        error_delta = ChatCompletionStreamChoiceDelta(content=f"An unexpected error occurred: {str(e_general)}")
         error_choice = ChatCompletionStreamChoice(delta=error_delta, finish_reason="error")
         error_response_obj = ChatCompletionStreamResponse(
             id=message_id_base,
@@ -225,9 +225,21 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     # Handle complex content field (string or list of text blocks)
     processed_prompt_str = ""
 
-    print(f"Processing messages with mode: {settings.message_mode}")
+    # Determine the actual processing mode based on settings and whether it's the first message
+    actual_processing_mode = settings.message_mode
+    if settings.message_mode == "all" and copilot_client_instance and copilot_client_instance.is_first_message_sent:
+        print("Message mode 'all' configured, but this is not the first message. Switching to 'last' mode for this request.")
+        actual_processing_mode = "last"
+    elif settings.message_mode == "all" and not (copilot_client_instance and copilot_client_instance.is_first_message_sent):
+        print("Message mode 'all' configured, and this is the first message. Using 'all' mode.")
+    else: # settings.message_mode == "last"
+        print("Message mode 'last' configured. Using 'last' mode.")
+        actual_processing_mode = "last"
 
-    if settings.message_mode == "last":
+
+    print(f"Processing messages with actual mode: {actual_processing_mode}")
+
+    if actual_processing_mode == "last":
         user_message_to_process = None
         for message in reversed(request_data.messages): # Iterate from the end
             if message.role == "user":
@@ -251,24 +263,36 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
         # processed_prompt_str could be empty if content was empty or only whitespace.
         # The generic check for empty prompt later will catch this.
 
-    elif settings.message_mode == "all":
-        # Concatenate all messages (existing logic)
+    elif actual_processing_mode == "all":
+        # Concatenate all messages with role prefixes
+        messages_with_roles = []
         for message in request_data.messages:
-            # Optionally, add role prefix, e.g., f"{message.role}: "
             current_content_str = ""
             if isinstance(message.content, str):
-                current_content_str = message.content
+                current_content_str = message.content.strip()
             elif isinstance(message.content, list):
+                temp_content_list = []
                 for block in message.content:
                     if isinstance(block, TextContentBlock) and block.type == "text":
-                        current_content_str += block.text + "\n" # Add newline after each block's text
+                        temp_content_list.append(block.text.strip())
                     elif isinstance(block, dict) and block.get("type") == "text": # Handle if not fully parsed
-                        current_content_str += block.get("text", "") + "\n" # Add newline
-                current_content_str = current_content_str.strip() # Strip trailing newline from this message's content
-            
-            if current_content_str: # Add non-empty content
-                processed_prompt_str += current_content_str + "\n" # Add a newline between messages
-    processed_prompt_str = processed_prompt_str.strip() # Remove trailing newline
+                        temp_content_list.append(block.get("text", "").strip())
+                current_content_str = "\n".join(temp_content_list).strip()
+
+            if current_content_str: # Add non-empty content with role prefix
+                # Use simple prefixes for roles
+                role_prefix = ""
+                if message.role == "system":
+                    role_prefix = "System: "
+                elif message.role == "user":
+                    role_prefix = "User: "
+                elif message.role == "assistant":
+                    role_prefix = "Assistant: "
+                # Other roles (like 'tool') might be ignored or handled differently if needed
+
+                messages_with_roles.append(f"{role_prefix}{current_content_str}")
+
+        processed_prompt_str = "\n\n".join(messages_with_roles) # Use double newline between messages
 
     if not processed_prompt_str: # Check if after processing, the prompt is empty
          raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Empty prompt after processing all message contents.")
@@ -276,6 +300,10 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     # Ensure prompt is a string before passing to other functions
     final_prompt: str = processed_prompt_str
     print(f"Processed prompt for Copilot: {final_prompt}")
+
+    # Ensure client is connected and page is initialized before sending message
+    if not await copilot_client_instance.connect():
+         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to connect or initialize Copilot client.")
 
     if request_data.stream:
         return StreamingResponse(stream_response_generator(final_prompt), media_type="text/event-stream")
@@ -286,15 +314,26 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
             async for chunk in copilot_client_instance.send_message_and_get_response(final_prompt):
                 full_response_content += chunk
             
-            # For the response, content should be a simple string
+            if not full_response_content and copilot_client_instance: # Check if content is empty and client exists
+                 # This might indicate an issue if send_message_and_get_response yielded nothing
+                 # but didn't raise an exception handled below.
+                 print("Warning: Non-streaming response from Copilot was empty.")
+                 # Depending on desired behavior, could raise HTTPException here or return empty content.
+
             assistant_response_message = ChatMessage(role="assistant", content=full_response_content)
             choice = ChatCompletionChoice(
                 message=assistant_response_message
             )
             return ChatCompletionResponse(choices=[choice], model=request_data.model)
 
-        except Exception as e:
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error processing non-streaming request: {str(e)}")
+        except RuntimeError as e_runtime: # Catch specific RuntimeError from CopilotClient
+            print(f"RuntimeError during non-streaming request from CopilotClient: {e_runtime}")
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail=f"Error communicating with Copilot: {str(e_runtime)}")
+        except Exception as e_general: # Catch any other unexpected errors
+            print(f"Unexpected error during non-streaming request: {e_general}")
+            import traceback
+            traceback.print_exc()
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {str(e_general)}")
 
 # --- Settings ---
 # Modify the Edge path according to your environment

@@ -17,6 +17,10 @@ The interaction with Copilot is achieved by:
 ## Status
 
 This project provides a functional gateway to Copilot. Further enhancements and error handling are ongoing.
+### Recent Improvements (May 2025)
+
+*   **Improved multi-turn conversation stability**: The handling of the WebSocket `requestId` for chat messages has been refined. The `requestId` is now captured once during the first message exchange and reused for subsequent messages in the same session. This resolves issues where responses to second and later prompts were not being correctly processed by the script.
+*   **Optimized page load wait time**: Reduced the timeout for waiting for the `Page.loadEventFired` event during initial browser connection to improve startup speed.
 
 ## Requirements
 
