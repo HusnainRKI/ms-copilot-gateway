@@ -33,6 +33,7 @@ class M365CopilotClient(BaseCopilotClient):
         # Instead, it might be captured and used within send_message_and_get_response.
         self.current_m365_chat_ws_request_id: typing.Optional[str] = None
         self.last_full_response_text: str = "" # To calculate diffs for streaming
+        self.is_first_message_sent: bool = False # Flag to track if the first message has been sent
 
     async def connect(self) -> bool:
         logger.info("Connecting M365CopilotClient...")
@@ -245,4 +246,10 @@ class M365CopilotClient(BaseCopilotClient):
         finally:
             # Reset request ID for this prompt as it's likely single-use for M365
             self.current_m365_chat_ws_request_id = None
+            if not self.is_first_message_sent: # Set flag after the first successful message cycle
+                # Check if any chunk was yielded to consider it successful
+                # This is a bit indirect. A more direct success flag from the loop would be better.
+                # For now, if we reached here without an exception that skipped the main loop,
+                # assume it was a "successful" interaction in terms of sending/receiving.
+                self.is_first_message_sent = True
             logger.debug("M365: send_message_and_get_response cycle finished.")

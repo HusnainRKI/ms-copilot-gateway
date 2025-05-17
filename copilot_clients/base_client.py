@@ -138,7 +138,7 @@ class BaseCopilotClient(ABC):
             logger.info(f"Connecting to browser CDP WebSocket: {self.browser_cdp_url}")
             # Set a timeout for the connection attempt itself
             self.browser_cdp_ws = await asyncio.wait_for(
-                websockets.connect(self.browser_cdp_url, ping_interval=None, ping_timeout=None),
+                websockets.connect(self.browser_cdp_url, ping_interval=None, ping_timeout=None, max_size=10 * 1024 * 1024), # Increased max_size to 10MB
                 timeout=10.0
             )
             self.is_browser_cdp_connected = True
@@ -255,7 +255,7 @@ class BaseCopilotClient(ABC):
         logger.debug(f"Waiting for Page.navigate command result (timeout: {navigation_timeout}s)...")
         try:
             while time.monotonic() - start_nav_wait < navigation_timeout:
-                message_str = await asyncio.wait_for(self.browser_cdp_ws.recv(), timeout=1.0)
+                message_str = await asyncio.wait_for(self.browser_cdp_ws.recv(), timeout=5.0) # Keep this timeout at 5.0
                 event_data = json.loads(message_str)
                 if event_data.get("id") == nav_cmd_id:
                     if "result" in event_data:
@@ -333,7 +333,7 @@ class BaseCopilotClient(ABC):
 
     async def _get_document_root_node_id(self) -> typing.Optional[int]:
         if not self.browser_cdp_ws or not self.page_cdp_session_id: return None
-        cmd_id = await self._send_cdp_command(self.browser_cdp_ws, "DOM.getDocument", {"depth": -1}, session_id=self.page_cdp_session_id)
+        cmd_id = await self._send_cdp_command(self.browser_cdp_ws, "DOM.getDocument", {"depth": 1}, session_id=self.page_cdp_session_id) # Changed depth from -1 to 1
         try:
             while True:
                 msg_str = await asyncio.wait_for(self.browser_cdp_ws.recv(), timeout=5.0)

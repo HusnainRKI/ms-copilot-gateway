@@ -20,6 +20,7 @@ from fastapi.responses import StreamingResponse, JSONResponse # Added JSONRespon
 from fastapi.exceptions import RequestValidationError # To handle validation errors explicitly
 from pydantic import BaseModel, Field # Added for request/response models
 from typing import List, Optional, Union, Dict, Any # Added for type hinting
+import typing # Added to resolve Pylance error for typing.cast and typing.Union
 
 # from copilot_client import CopilotClient # Old client, will be removed
 from copilot_clients.base_client import BaseCopilotClient # For type hinting
@@ -318,19 +319,25 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     actual_processing_mode = settings.message_mode
     if settings.message_mode == "all":
         # Check if the client instance exists and is of a type that tracks 'is_first_message_sent'
-        # For now, specifically check for StandardCopilotClient. This can be expanded if M365Client also gets this.
+        # Check for StandardCopilotClient or M365CopilotClient for is_first_message_sent logic
         from copilot_clients.standard_client import StandardCopilotClient # Local import for isinstance
-        if copilot_client_instance and isinstance(copilot_client_instance, StandardCopilotClient):
-            if copilot_client_instance.is_first_message_sent:
-                logger.info("Message mode 'all' configured for StandardClient, but this is not the first message. Switching to 'last' mode.")
+        from copilot_clients.m365_client import M365CopilotClient # Local import for isinstance
+        
+        client_supports_first_message_logic = False
+        if copilot_client_instance and (isinstance(copilot_client_instance, StandardCopilotClient) or isinstance(copilot_client_instance, M365CopilotClient)):
+            client_supports_first_message_logic = True
+
+        if client_supports_first_message_logic:
+            # This type assertion is safe due to the isinstance check above.
+            # However, to satisfy type checkers more broadly without needing a common interface for is_first_message_sent yet:
+            client_instance_with_flag = typing.cast(typing.Union[StandardCopilotClient, M365CopilotClient], copilot_client_instance)
+            if client_instance_with_flag.is_first_message_sent:
+                logger.info(f"Message mode 'all' configured for {type(copilot_client_instance).__name__}, but this is not the first message. Switching to 'last' mode.")
                 actual_processing_mode = "last"
             else:
-                logger.info("Message mode 'all' configured for StandardClient, and this is the first message. Using 'all' mode.")
-        # If it's another client type or instance is None, and mode is 'all', it will remain 'all'.
-        # This assumes M365Client or other future clients might handle "all" mode differently for all turns,
-        # or they might implement their own 'is_first_message_sent' if needed.
-        elif copilot_client_instance: # Client exists but is not StandardCopilotClient (or one we check for)
-             logger.info(f"Message mode 'all' configured for client type {type(copilot_client_instance).__name__}. 'is_first_message_sent' flag not specifically handled for this type in main.py, using 'all' mode.")
+                logger.info(f"Message mode 'all' configured for {type(copilot_client_instance).__name__}, and this is the first message. Using 'all' mode.")
+        elif copilot_client_instance: # Client exists but is not one of the types we handle for first_message_sent
+             logger.info(f"Message mode 'all' configured for client type {type(copilot_client_instance).__name__}. 'is_first_message_sent' flag not specifically handled for this type in main.py, using 'all' mode as configured.")
         else: # copilot_client_instance is None (should be caught by earlier checks)
             logger.warning("Message mode 'all', but copilot_client_instance is None. Defaulting to 'all' (will likely fail later).")
 
