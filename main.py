@@ -21,7 +21,10 @@ from fastapi.exceptions import RequestValidationError # To handle validation err
 from pydantic import BaseModel, Field # Added for request/response models
 from typing import List, Optional, Union, Dict, Any # Added for type hinting
 
-from copilot_client import CopilotClient # Import the new client
+# from copilot_client import CopilotClient # Old client, will be removed
+from copilot_clients.base_client import BaseCopilotClient # For type hinting
+from copilot_clients.client_factory import CopilotClientFactory
+from config import settings # Import settings from config
 
 # --- Logger Setup ---
 logger = logging.getLogger("WebServer")
@@ -87,36 +90,46 @@ def format_prompt_for_logging(prompt: str, is_debug: bool, max_len: int = 100) -
 
 
 # Global CopilotClient instance
-copilot_client_instance: Optional[CopilotClient] = None
+copilot_client_instance: Optional[BaseCopilotClient] = None # Updated type hint
 
-# --- Application Settings ---
-class AppSettings(BaseModel): # Using Pydantic for potential future validation/structure
-    message_mode: str = "last" # Default value
-    debug_logging: bool = False # Added for debug logging control
-
-settings = AppSettings()
+# AppSettings class and global settings instance are now imported from config.py
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global copilot_client_instance
-    logger.info("Initializing Copilot client...")
-    copilot_client_instance = CopilotClient(
-        edge_path=EDGE_PATH,
-        debug_profile_dir=DEBUG_PROFILE_DIR,
-        debugging_port=DEBUGGING_PORT,
-        copilot_url=COPILOT_URL,
-        websocket_url_filter=WEBSOCKET_URL_FILTER,
-        user_input_selector=USER_INPUT_SELECTOR,
-        submit_button_selector=SUBMIT_BUTTON_SELECTOR,
-        is_debug_logging=settings.debug_logging # Pass debug logging flag
-    )
-    if not await copilot_client_instance.connect():
+    logger.info(f"Initializing Copilot client for type: {settings.copilot_type} via factory...")
+    # active_copilot_config = settings.get_active_copilot_settings() # Factory handles this
+    copilot_client_instance = CopilotClientFactory.create_client(settings)
+
+    if not copilot_client_instance:
+        logger.error(f"Failed to create Copilot client for type: {settings.copilot_type}. Server cannot start.")
+        # Optionally raise an exception to prevent server startup
+        # For now, we'll let it proceed, but connect() will likely fail or be None
+        # This path should ideally prevent uvicorn from starting if client is critical.
+        # However, lifespan manager might not have a direct way to stop uvicorn server start.
+        # A more robust solution might involve a pre-startup check or a state variable.
+        # For now, if create_client returns None, connect() will be called on None.
+        # Let's add a check before calling connect.
+        # yield will still happen, and then cleanup will try to close None.
+        # This needs careful handling.
+        # For now, let's assume create_client always returns a client or raises an error.
+        # The factory returns Optional, so we must handle None.
+        # If None, we cannot proceed with connect.
+        # The server will start but API calls will fail.
+        # This is not ideal. Let's log and the connect call will fail.
+        # A better approach: raise an error in factory or here if client is None.
+        # For now, the current structure will lead to an AttributeError if copilot_client_instance is None.
+        # Let's ensure connect is only called if instance is not None.
+        # And if it's None, the server effectively won't work.
+        # This is a limitation of lifespan not being able to easily abort server start.
+        # Let's assume the factory logs an error and returns None.
+        # The `connect` call below will then fail if instance is None.
+        # This is acceptable for now.
+    elif not await copilot_client_instance.connect():
         logger.error("Failed to connect to Copilot during startup. Server might not function correctly.")
-        # Optionally, raise an exception here to prevent server startup if connection is critical
     else:
         logger.info("Copilot client connected successfully.")
     yield
-    # --- Ensure cleanup happens ---
     logger.info("Closing Copilot client (lifespan)...")
     if copilot_client_instance:
         await copilot_client_instance.close()
@@ -201,7 +214,11 @@ async def stream_response_generator(prompt: str):
     Yields data in the Server-Sent Events (SSE) format required by OpenAI API.
     """
     global copilot_client_instance
-    if not copilot_client_instance or not copilot_client_instance.websocket_connection or not copilot_client_instance.session_id:
+    # Updated attribute names: websocket_connection -> browser_cdp_ws, session_id -> page_cdp_session_id
+    # Also check if the client instance itself exists
+    if not copilot_client_instance or \
+       not copilot_client_instance.is_browser_cdp_connected or \
+       not copilot_client_instance.page_cdp_session_id:
         # This should ideally be caught before starting the stream,
         # but as a fallback:
         error_response = ChatCompletionStreamResponse(
@@ -287,23 +304,44 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
 
 
     global copilot_client_instance
-    if not copilot_client_instance or not copilot_client_instance.websocket_connection or not copilot_client_instance.session_id:
+    # Updated attribute names and check
+    if not copilot_client_instance or \
+       not copilot_client_instance.is_browser_cdp_connected or \
+       not copilot_client_instance.page_cdp_session_id:
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Copilot service not available or not connected.")
 
     # Extract the last user message as the prompt
     # Handle complex content field (string or list of text blocks)
     processed_prompt_str = ""
 
-    # Determine the actual processing mode based on settings and whether it's the first message
+    # Determine the actual processing mode based on settings and whether it's the first message.
     actual_processing_mode = settings.message_mode
-    if settings.message_mode == "all" and copilot_client_instance and copilot_client_instance.is_first_message_sent:
-        logger.info("Message mode 'all' configured, but this is not the first message. Switching to 'last' mode for this request.")
-        actual_processing_mode = "last"
-    elif settings.message_mode == "all" and not (copilot_client_instance and copilot_client_instance.is_first_message_sent):
-        logger.info("Message mode 'all' configured, and this is the first message. Using 'all' mode.")
-    else: # settings.message_mode == "last"
+    if settings.message_mode == "all":
+        # Check if the client instance exists and is of a type that tracks 'is_first_message_sent'
+        # For now, specifically check for StandardCopilotClient. This can be expanded if M365Client also gets this.
+        from copilot_clients.standard_client import StandardCopilotClient # Local import for isinstance
+        if copilot_client_instance and isinstance(copilot_client_instance, StandardCopilotClient):
+            if copilot_client_instance.is_first_message_sent:
+                logger.info("Message mode 'all' configured for StandardClient, but this is not the first message. Switching to 'last' mode.")
+                actual_processing_mode = "last"
+            else:
+                logger.info("Message mode 'all' configured for StandardClient, and this is the first message. Using 'all' mode.")
+        # If it's another client type or instance is None, and mode is 'all', it will remain 'all'.
+        # This assumes M365Client or other future clients might handle "all" mode differently for all turns,
+        # or they might implement their own 'is_first_message_sent' if needed.
+        elif copilot_client_instance: # Client exists but is not StandardCopilotClient (or one we check for)
+             logger.info(f"Message mode 'all' configured for client type {type(copilot_client_instance).__name__}. 'is_first_message_sent' flag not specifically handled for this type in main.py, using 'all' mode.")
+        else: # copilot_client_instance is None (should be caught by earlier checks)
+            logger.warning("Message mode 'all', but copilot_client_instance is None. Defaulting to 'all' (will likely fail later).")
+
+    elif settings.message_mode == "last":
         logger.info("Message mode 'last' configured. Using 'last' mode.")
-        actual_processing_mode = "last"
+        actual_processing_mode = "last" # Explicitly set, though it's already the default for this branch
+    # else:
+        # This case should not be reached if choices are enforced by argparse.
+        # logger.warning(f"Unknown message_mode '{settings.message_mode}', defaulting to 'last'.")
+        # actual_processing_mode = "last"
+
 
     logger.info(f"Processing messages with actual mode: {actual_processing_mode}")
 
@@ -403,23 +441,10 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
             # traceback.print_exc()
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"An unexpected error occurred: {str(e_general)}")
 
-# --- Settings ---
-# Modify the Edge path according to your environment
-EDGE_PATH = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-# Debugging profile directory.
-# Defaults to a temporary directory. Set to None to use the default Edge profile.
-# DEBUG_PROFILE_DIR = None # Example: Use default profile
-DEBUG_PROFILE_DIR = os.path.join(tempfile.gettempdir(), "edge_debug_profile_temp")
-DEBUGGING_PORT = 9222
-COPILOT_URL = "https://copilot.microsoft.com/"
-WEBSOCKET_URL_FILTER = "wss://copilot.microsoft.com/c/api/chat?api-version=2"
-# Selector modification may be required if Copilot's UI structure changes
-USER_INPUT_SELECTOR = "textarea#userInput"
-# Submit button selector (simple version)
-SUBMIT_BUTTON_SELECTOR = 'button[data-testid="submit-button"]'
+# Settings constants are now in config.py and accessed via the settings object.
 
 
-async def main_stdio_repl(client: CopilotClient):
+async def main_stdio_repl(client: BaseCopilotClient): # Updated type hint
     """Handles the REPL interaction when in stdio mode."""
     logger.info("\nCopilot REPL initialized (stdio mode). Type your message and press Enter.")
     logger.info("Type 'exit' or 'quit' or press Ctrl+D (EOF) to terminate.")
@@ -434,7 +459,8 @@ async def main_stdio_repl(client: CopilotClient):
                 break
 
             logger.info(f"Sending to Copilot: {format_prompt_for_logging(user_input, settings.debug_logging)}") # Use settings for debug_logging
-            if not client.websocket_connection or not client.session_id:
+            # Updated attribute names
+            if not client.is_browser_cdp_connected or not client.page_cdp_session_id:
                 logger.error("Copilot client is not connected. Cannot send message.")
                 logger.info("Attempting to reconnect client for REPL...")
                 if await client.connect(): # Attempt to reconnect
@@ -467,45 +493,64 @@ async def main():
         action="store_true",
         help="Run in stdin/stdout mode for direct command-line interaction.",
     )
-    parser.add_argument("--host", type=str, default="0.0.0.0", help="Host for the server (default: 0.0.0.0).")
-    parser.add_argument("--port", type=int, default=8000, help="Port for the server (default: 8000).")
+    parser.add_argument("--host", type=str, default=settings.host, help="Host for the server.")
+    parser.add_argument("--port", type=int, default=settings.port, help="Port for the server.")
     parser.add_argument(
         "--message-mode",
         type=str,
         choices=["last", "all"],
-        default="last", # Default is 'last'
+        default=settings.message_mode,
         help="Defines how messages are processed: 'last' (only the last user message) or 'all' (all messages concatenated)."
     )
     parser.add_argument(
         "--debug-logging",
-        action="store_true",
-        help="Enable debug level logging and full prompt text logging."
+        action="store_true", # Action 'store_true' implies default is False if not specified.
+                              # If we want the default from settings to be True if settings.debug_logging is True,
+                              # we might need to handle it post-parsing or set 'default' carefully if the action wasn't 'store_true'.
+                              # For 'store_true', if the flag is present, it's True, otherwise False.
+                              # We will update settings.debug_logging based on args.debug_logging.
+        help="Enable debug level logging and full prompt text logging. Overrides default from config if specified."
+    )
+    parser.add_argument(
+        "--copilot-type",
+        type=str,
+        choices=["standard", "m365"],
+        default=settings.copilot_type,
+        help="Specify the Copilot type to use: 'standard' or 'm365'."
     )
     args = parser.parse_args()
 
-    # Setup logging as early as possible, using the debug_logging flag
-    setup_logging(args.debug_logging)
-    settings.debug_logging = args.debug_logging # Store for global access if needed by lifespan
+    # Update settings from command line arguments
+    # For 'store_true' flags like debug_logging, args.debug_logging will be True if flag is present, False otherwise.
+    # If the flag is present, it overrides the default from settings. If not present, we keep the settings default.
+    # However, the typical behavior of argparse is that args.debug_logging will BE the value (True if passed, False if not, if default was False).
+    # If settings.debug_logging was True, and --debug-logging is NOT passed, args.debug_logging would be False.
+    # To ensure CLI can override, but config default is used if CLI flag absent:
+    if args.debug_logging is not None and args.debug_logging != settings.debug_logging: # Check if CLI provided a value different from settings default
+         settings.debug_logging = args.debug_logging
+    # For other args, the default from settings is used if not provided on CLI.
+    settings.host = args.host
+    settings.port = args.port
+    settings.message_mode = args.message_mode
+    settings.copilot_type = args.copilot_type
+
+
+    # Setup logging as early as possible, using the debug_logging flag from settings
+    setup_logging(settings.debug_logging)
 
     if args.stdio:
-        # Stdio mode: Manually manage client lifecycle
-        logger.info("Initializing Copilot client for stdio mode...")
-        # Note: copilot_client_instance is for FastAPI lifespan, use a local one here.
-        # stdio mode does not use the global 'settings.message_mode' from command line args for server.
-        stdio_client = CopilotClient(
-            edge_path=EDGE_PATH,
-            debug_profile_dir=DEBUG_PROFILE_DIR,
-            debugging_port=DEBUGGING_PORT,
-            copilot_url=COPILOT_URL,
-            websocket_url_filter=WEBSOCKET_URL_FILTER,
-            user_input_selector=USER_INPUT_SELECTOR,
-            submit_button_selector=SUBMIT_BUTTON_SELECTOR,
-            is_debug_logging=args.debug_logging # Pass debug flag
-        )
+        logger.info(f"Initializing Copilot client for stdio mode (type: {settings.copilot_type}) via factory...")
+        # active_copilot_config = settings.get_active_copilot_settings() # Factory handles this
+        stdio_client: Optional[BaseCopilotClient] = CopilotClientFactory.create_client(settings)
+
+        if not stdio_client:
+            logger.error(f"Failed to create Copilot client for stdio mode (type: {settings.copilot_type}). Exiting.")
+            return # Exit if client creation failed
+
         try:
             if await stdio_client.connect():
                 logger.info("Copilot client connected for stdio mode.")
-                await main_stdio_repl(stdio_client) # Pass args for debug_logging if needed by REPL directly
+                await main_stdio_repl(stdio_client)
             else:
                 logger.error("Failed to connect Copilot client for stdio mode. Exiting.")
         except KeyboardInterrupt:
@@ -514,17 +559,15 @@ async def main():
             logger.exception(f"An unexpected error occurred in stdio mode: {e_stdio_main}")
         finally:
             logger.info("Cleaning up stdio mode client...")
-            if stdio_client: # Ensure it was initialized
+            if stdio_client:
                 await stdio_client.close()
             logger.info("Stdio mode client cleanup complete.")
     else:
         # Server mode: FastAPI app with lifespan will handle client
-        settings.message_mode = args.message_mode # Set the global setting for server mode
         logger.info(f"Message processing mode set to: {settings.message_mode}")
         logger.info(f"Debug logging enabled: {settings.debug_logging}")
-        logger.info(f"Starting ChatGPT-compatible server on http://{args.host}:{args.port}")
-        # 'app' is defined globally with lifespan; uvicorn uses it.
-        # The global 'copilot_client_instance' will be managed by 'lifespan'.
+        logger.info(f"Copilot type selected: {settings.copilot_type}")
+        logger.info(f"Starting ChatGPT-compatible server on http://{settings.host}:{settings.port}")
         try:
             # Uvicorn's log_level will be overridden by our root logger setup if it's more verbose.
             # If our root logger is INFO, and uvicorn's is DEBUG, uvicorn will still log DEBUG.

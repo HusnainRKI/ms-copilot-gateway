@@ -23,7 +23,7 @@ graph LR
 
 The interaction with Copilot is achieved by:
 *   Launching Microsoft Edge with the remote debugging port enabled on Windows.
-*   Navigating to `https://copilot.microsoft.com/`.
+*   Navigating to the selected Copilot URL (either `https://copilot.microsoft.com/` for standard Copilot or `https://m365.cloud.microsoft/chat` for MS365 Copilot, configurable via a command-line argument).
 *   Using the Chrome DevTools Protocol (CDP) to:
     *   Attach to the Copilot page.
     *   Enable network monitoring.
@@ -36,10 +36,18 @@ This project provides a functional gateway to Copilot. Further enhancements and 
 
 **Important Considerations:**
 
-*   **Experimental Project**: This gateway is an experimental project. Due to the nature of interacting with Copilot via UI automation, its stability and long-term viability may be affected by changes to the Copilot website.
-*   **Character Limits**: Microsoft Copilot has character limits for prompts (typically 10,240 characters, or 8,000 characters if [Enterprise Data Protection](https://learn.microsoft.com/en-us/copilot/microsoft-365/enterprise-data-protection) is enabled). This gateway does not currently implement any specific handling for these limits beyond what Copilot itself enforces. Long prompts or extensive conversation history might lead to truncated inputs or errors. This is a key reason why using a custom mode with a significantly shorter system prompt is crucial when integrating with tools like Roo Code.
+*   **Experimental Project**: This gateway is an experimental project. Due to the nature of interacting with Copilot via UI automation, its stability and long-term viability may be affected by changes to the Copilot website(s).
+*   **Microsoft 365 Copilot Support (Highly Experimental)**:
+    *   Support for Microsoft 365 Copilot (via `--copilot-type m365`) has been added but is **highly experimental and largely untested**.
+    *   MS365 Copilot has different UI selectors, WebSocket behaviors (RS-separated JSON messages, full responses per update, potentially new WebSocket per prompt), and character limits (e.g., 8000 characters) compared to the standard `copilot.microsoft.com`.
+    *   The implementation for MS365 Copilot in [`copilot_clients/m365_client.py`](copilot_clients/m365_client.py:1) attempts to address these differences, but requires thorough testing and likely adjustments.
+    *   Configuration for MS365 Copilot (URLs, selectors) can be found and may need modification in [`config.py`](config.py:1).
+*   **Character Limits**:
+    *   Standard Microsoft Copilot (`copilot.microsoft.com`) typically has a character limit of around 10,240 characters.
+    *   Microsoft 365 Copilot is reported to have a character limit of around 8,000 characters.
+    *   This gateway's `--message-mode all` (for sending full conversation history on the first turn) combined with long system prompts can easily exceed these limits. For subsequent turns in a conversation when using `--message-mode all` with the standard Copilot client, the gateway now attempts to send only the last user message.
 *   **No File Attachment Support**: This gateway currently does not support file attachments. Interactions are limited to text-based prompts and responses.
-*   **Dedicated Debugging Profile**: For Chrome DevTools Protocol (CDP) automation, this script launches Microsoft Edge with a dedicated, separate user profile (typically located at `%TEMP%/edge_debug_profile_temp` or a similar path in your system's temporary directory, as defined by `DEBUG_PROFILE_DIR` in [`main.py`](main.py:412)). This is a **necessary** measure due to security enhancements in Chromium-based browsers (including Edge version 136 and later).
+*   **Dedicated Debugging Profile**: For Chrome DevTools Protocol (CDP) automation, this script launches Microsoft Edge with a dedicated, separate user profile (typically located at `%TEMP%/edge_debug_profile_temp` or a similar path in your system's temporary directory, as defined by `debug_profile_dir` in [`config.py`](config.py:1)). This is a **necessary** measure due to security enhancements in Chromium-based browsers (including Edge version 136 and later).
     *   **Security Background**: Chromium intentionally restricts the use of the `--remote-debugging-port` (or `--remote-debugging-pipe`) with the *default* user data directory. This is a security measure to prevent malicious actors from exploiting the remote debugging feature to access sensitive user data, especially cookies, from the user's main profile.
     *   **Why a Separate Profile is Required**: To enable remote debugging for automation, a custom (non-default) user data directory must be specified (via the `--user-data-dir` switch). This script adheres to this requirement by creating and using a temporary profile. This ensures that the automation operates in an isolated environment, separate from your main browser profile and its data. It also uses a different encryption key for any data stored within this temporary profile, further protecting your main profile's data.
     *   **Data Handling**: Consequently, any browsing history, cookies, or site data (including logins) generated during the script's operation will be isolated to this temporary profile. If you log into any accounts or enter sensitive information, this data will reside in this separate profile directory. This script does not automatically clear this temporary profile upon exit. Please be mindful of any sensitive data that might be stored there if you perform such actions.
@@ -72,7 +80,7 @@ Ensure these match the dependencies listed in [`pyproject.toml`](pyproject.toml:
 
 ## Usage
 
-1.  Ensure the `EDGE_PATH` variable in [`main.py`](main.py:408) points to your `msedge.exe`.
+1.  Ensure the `edge_path` variable in [`config.py`](config.py:1) points to your `msedge.exe`.
 
 ### Server Mode (Default)
 
@@ -93,12 +101,20 @@ This mode starts an HTTP server compatible with the OpenAI Chat Completions API.
     ```bash
     python main.py --message-mode all --port 8888
     ```
-4.  To enable debug logging (sets log level to DEBUG and shows full prompts):
+4.  To select the Copilot service to connect to (defaults to `standard`):
+    *   `standard`: Connects to `copilot.microsoft.com`.
+    *   `m365`: Connects to `m365.cloud.microsoft` (experimental, requires appropriate M365 Copilot access and may need configuration adjustments in `config.py`).
+    ```bash
+    python main.py --copilot-type standard
+    # or
+    python main.py --copilot-type m365
+    ```
+5.  To enable debug logging (sets log level to DEBUG and shows full prompts):
     ```bash
     python main.py --debug-logging
     ```
-5.  The server will launch Edge, navigate to Copilot, and be ready to accept API requests.
-6.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
+6.  The server will launch Edge, navigate to the selected Copilot service, and be ready to accept API requests.
+7.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
 
 ### Stdio REPL Mode
 
@@ -107,8 +123,10 @@ This mode allows direct command-line interaction with Copilot.
 1.  Run the script with the `--stdio` flag:
     ```bash
     python main.py --stdio
+    # To use with MS365 Copilot (experimental):
+    python main.py --stdio --copilot-type m365
     ```
-2.  The script will launch Edge, navigate to Copilot, and then present a `>` prompt.
+2.  The script will launch Edge, navigate to the selected Copilot service, and then present a `>` prompt.
 3.  Type your message and press Enter to send it to Copilot. The response will be streamed to the console.
 4.  Type `exit` or `quit` (or press `Ctrl+D`) at the prompt to close the script and Edge. You can also use `Ctrl+C` to interrupt.
 
