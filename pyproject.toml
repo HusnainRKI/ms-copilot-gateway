@@ -7,4 +7,6 @@ requires-python = ">=3.10"
 dependencies = [
     "fastapi",
     "uvicorn[standard]",
+    "websockets>=12.0", # Added websockets as it's a core dependency
+    "colorlog>=6.7.0", # Added colorlog for colored logging
 ]

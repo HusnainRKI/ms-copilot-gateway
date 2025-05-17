@@ -17,7 +17,7 @@ The interaction with Copilot is achieved by:
 ## Status
 
 This project provides a functional gateway to Copilot. Further enhancements and error handling are ongoing.
-### Recent Improvements (May 2025)
+### Key Enhancements
 
 *   **Improved multi-turn conversation stability**: The handling of the WebSocket `requestId` for chat messages has been refined. The `requestId` is now captured once during the first message exchange and reused for subsequent messages in the same session. This resolves issues where responses to second and later prompts were not being correctly processed by the script.
 *   **Optimized page load wait time**: Reduced the timeout for waiting for the `Page.loadEventFired` event during initial browser connection to improve startup speed.
@@ -26,17 +26,16 @@ This project provides a functional gateway to Copilot. Further enhancements and 
 
 *   Python 3.10+ (as defined in `pyproject.toml`)
 *   `uv` (for package management, optional but recommended)
-*   Required Python libraries: `websockets`, `fastapi`, `uvicorn[standard]`
+*   Required Python libraries: `websockets`, `fastapi`, `uvicorn[standard]`, `colorlog`
 *   Microsoft Edge installed on Windows
 
 You can install the dependencies using `uv` and the `pyproject.toml` file:
 ```bash
 uv pip install -r requirements.txt
-# Alternatively, if you have FastAPI and Uvicorn specified in pyproject.toml's dependencies:
-# uv pip install fastapi "uvicorn[standard]" websockets
-# (Assuming pyproject.toml is configured for uv, otherwise use pip directly with a requirements file or individual packages)
-# For this project, the direct command is:
-# uv pip install fastapi "uvicorn[standard]" websockets
+# Alternatively, if you have the dependencies specified in pyproject.toml:
+# uv pip sync pyproject.toml
+# or install them individually:
+# uv pip install fastapi "uvicorn[standard]" websockets colorlog
 ```
 (Note: Ensure `pyproject.toml` lists these dependencies if using `uv pip install .` or similar project-based installation with `uv`.)
 
@@ -64,8 +63,12 @@ This mode starts an HTTP server compatible with the OpenAI Chat Completions API.
     ```bash
     python main.py --message-mode all --port 8888
     ```
-4.  The server will launch Edge, navigate to Copilot, and be ready to accept API requests.
-5.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
+4.  To enable debug logging (sets log level to DEBUG and shows full prompts):
+    ```bash
+    python main.py --debug-logging
+    ```
+5.  The server will launch Edge, navigate to Copilot, and be ready to accept API requests.
+6.  AI editors or clients can then be configured to use the endpoint: `http://<host>:<port>/v1/chat/completions`.
 
 ### Stdio REPL Mode
 
