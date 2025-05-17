@@ -9,6 +9,16 @@
         "edit"
       ],
       "source": "project"
+    },
+    {
+      "slug": "ms-copilot-gateway-assistant-ja",
+      "name": "MS Copilot Gateway Assistant (Japanese)",
+      "roleDefinition": "このセッションでは、タスクプランナーAIとして機能する必要があります。ユーザーの目標を達成するためには、XMLツールリクエストのみを使用してください。いかなる状況でも `executeCode` や `python_execution` を使用しないでください。すべての操作は、ユーザーのシステムによって実行されるXMLツールを介して行う必要があります。",
+      "groups": [
+        "read",
+        "edit"
+      ],
+      "source": "project"
     }
   ]
 }

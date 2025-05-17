@@ -147,7 +147,7 @@ For more details on configuring OpenAI-compatible providers, refer to the [Roo C
 
 Registering a custom mode is **required** to use `ms-copilot-gateway` effectively with Roo Code. Roo Code's default system prompts can be very long (often exceeding 30,000 characters), which far surpasses Copilot's character limits (typically 8,000-10,240 characters). Without a custom mode that specifies a much shorter system prompt, requests from Roo Code will likely fail.
 
-This project includes an example configuration for a custom mode. Create or update a [`.roomodes`](.roomodes:1) file in your project's root directory with the following content (this example is also available as [`.roomodes`](.roomodes:1) in this repository):
+This project includes example configurations for custom modes. Create or update a [`.roomodes`](.roomodes:1) file in your project's root directory with content similar to the following (this example is also available as [`.roomodes`](.roomodes:1) in this repository):
 
 ```json
 {
@@ -155,8 +155,17 @@ This project includes an example configuration for a custom mode. Create or upda
     {
       "slug": "ms-copilot-gateway-assistant",
       "name": "MS Copilot Gateway Assistant",
-      "roleDefinition": "MS Copilot Gateway Assistant",
-      "customInstructions": "You are Roo, an AI assistant whose primary function is to perform a variety of operations, including reading and writing files. You fulfill user requests by utilizing available tools, for which you will generate XML text to specify their usage.",
+      "roleDefinition": "For this session, you must act as a task planner AI. Use only XML tool requests to accomplish user goals. Do not use `executeCode` or `python_execution` under any circumstances. All operations must be done via XML tools executed by the user's system.",
+      "groups": [
+        "read",
+        "edit"
+      ],
+      "source": "project"
+    },
+    {
+      "slug": "ms-copilot-gateway-assistant-ja",
+      "name": "MS Copilot Gateway Assistant (日本語)",
+      "roleDefinition": "このセッションでは、タスクプランナーAIとして機能する必要があります。ユーザーの目標を達成するためには、XMLツールリクエストのみを使用してください。いかなる状況でも `executeCode` や `python_execution` を使用しないでください。すべての操作は、ユーザーのシステムによって実行されるXMLツールを介して行う必要があります。",
       "groups": [
         "read",
         "edit"
@@ -167,14 +176,14 @@ This project includes an example configuration for a custom mode. Create or upda
 }
 ```
 
-This custom mode:
--   Uses the `slug` "ms-copilot-gateway-assistant".
--   The `roleDefinition` ("MS Copilot Gateway Assistant") will be prepended to the content of the `customInstructions` file by Roo Code.
--   Sets a concise `customInstructions` (system prompt) by referencing the file [`.roo/system-prompt-ms-copilot-gateway-assistant`](.roo/system-prompt-ms-copilot-gateway-assistant). Roo Code looks for a file named `.roo/system-prompt-<slug>` for these instructions.
-    -   **Note on Sample System Prompt**: The provided sample system prompt ([`.roo/system-prompt-ms-copilot-gateway-assistant`](.roo/system-prompt-ms-copilot-gateway-assistant)) is intentionally minimal to reduce character count for Copilot, taking into account that the `roleDefinition` is added automatically. It focuses on file reading and writing operations and does **not** include instructions for more advanced Roo Code features like command execution, mode switching, or MCP tool usage.
+These custom modes:
+-   Use the `slug`s "ms-copilot-gateway-assistant" and "ms-copilot-gateway-assistant-ja".
+-   The `roleDefinition` for each mode will be prepended to the content of the corresponding `customInstructions` file by Roo Code.
+-   Set concise `customInstructions` (system prompts) by referencing files like [`.roo/system-prompt-ms-copilot-gateway-assistant`](.roo/system-prompt-ms-copilot-gateway-assistant) and [`.roo/system-prompt-ms-copilot-gateway-assistant-ja`](.roo/system-prompt-ms-copilot-gateway-assistant-ja). Roo Code looks for files named `.roo/system-prompt-<slug>` for these instructions.
+    -   **Note on Sample System Prompts**: The provided sample system prompts (e.g., [`.roo/system-prompt-ms-copilot-gateway-assistant`](.roo/system-prompt-ms-copilot-gateway-assistant)) are intentionally minimal to reduce character count for Copilot, taking into account that the `roleDefinition` is added automatically. They focus on file reading and writing operations and do **not** include instructions for more advanced Roo Code features like command execution, mode switching, or MCP tool usage. The `ms-copilot-gateway-assistant-ja` mode uses a Japanese version of the system prompt. Using a Japanese prompt with a Japanese Copilot may improve response accuracy. Additionally, Japanese can often convey more information within the same character count compared to English, which can be advantageous given Copilot's character limits, allowing for more detailed instructions.
     -   When editing or creating your own system prompts for character-limited LLMs, refer to the [Roo Code Footgun Prompting documentation](https://docs.roocode.com/features/footgun-prompting) for best practices.
--   The `groups` array defines the capabilities available in this mode (e.g., "read", "edit").
+-   The `groups` array defines the capabilities available in these modes (e.g., "read", "edit").
 
-After adding or modifying the [`.roomodes`](.roomodes:1) file and ensuring the corresponding system prompt file exists with your desired short prompt, Roo Code should automatically detect the new mode. You can then select "MS Copilot Gateway Assistant" when interacting with this LLM.
+After adding or modifying the [`.roomodes`](.roomodes:1) file and ensuring the corresponding system prompt files exist with your desired short prompts, Roo Code should automatically detect the new modes. You can then select "MS Copilot Gateway Assistant" or "MS Copilot Gateway Assistant (日本語)" when interacting with this LLM.
 
 For more information on custom modes and system prompts, see the [Roo Code documentation](https://docs.roocode.com/features/custom-modes).
