@@ -178,6 +178,8 @@ class ChatCompletionRequest(BaseModel):
     # Add other common parameters if needed, e.g., temperature, max_tokens, etc.
     # For now, we'll keep it simple and primarily use the last user message.
 
+last_final_chat_message: Optional[ChatMessage] = None # Stores the last ChatMessage from the last successful request's messages list
+
 # For streaming responses
 class ChatCompletionStreamChoiceDelta(BaseModel):
     content: Optional[str] = None
@@ -304,7 +306,7 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
         # logger.debug(f"Request data (from Pydantic model): {request_data.model_dump_json()}")
 
 
-    global copilot_client_instance
+    global copilot_client_instance, last_final_chat_message
     # Updated attribute names and check
     if not copilot_client_instance or \
        not copilot_client_instance.is_browser_cdp_connected or \
@@ -326,6 +328,9 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
         client_supports_first_message_logic = False
         if copilot_client_instance and (isinstance(copilot_client_instance, StandardCopilotClient) or isinstance(copilot_client_instance, M365CopilotClient)):
             client_supports_first_message_logic = True
+
+        if settings.debug_logging and copilot_client_instance and hasattr(copilot_client_instance, 'is_first_message_sent'):
+            logger.debug(f"State before determining actual_processing_mode: copilot_client_instance.is_first_message_sent = {getattr(copilot_client_instance, 'is_first_message_sent', 'N/A')}")
 
         if client_supports_first_message_logic:
             # This type assertion is safe due to the isinstance check above.
@@ -414,11 +419,108 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     final_prompt: str = processed_prompt_str
     logger.info(f"Processed prompt for Copilot: {format_prompt_for_logging(final_prompt, settings.debug_logging)}")
 
+    # --- Session Reinitialization Logic based on ChatMessage history ---
+    is_new_session = True # Assume new session by default
+    if not request_data.messages:
+        logger.warning("Request data messages list is empty. Defaulting to new session.")
+    elif last_final_chat_message is None:
+        logger.info("No previous chat message stored. Treating as new session (or first request).")
+    else:
+        # Check Pattern 1: [..., LFC, Assistant, User_current]
+        # LFC is last_final_chat_message (which was messages[-1] of previous request)
+        if len(request_data.messages) >= 3:
+            if request_data.messages[-3] == last_final_chat_message:
+                logger.info("Session continued (Pattern 1 detected): Message at index -3 matches previous request's last message.")
+                is_new_session = False
+            elif settings.debug_logging and is_new_session: # Only log if still considered new and Pattern 1 was possible
+                logger.debug(f"Pattern 1 Check (len >= 3): messages[-3] ({request_data.messages[-3]}) != LFC ({last_final_chat_message})")
+
+        # If not Pattern 1, or if len < 3, check Pattern 2: [..., LFC, User_current]
+        if is_new_session and len(request_data.messages) >= 2: # is_new_session is still true here if Pattern 1 didn't match
+            if request_data.messages[-2] == last_final_chat_message:
+                logger.info("Session continued (Pattern 2 detected): Message at index -2 matches previous request's last message.")
+                is_new_session = False
+            elif settings.debug_logging and is_new_session: # Only log if still considered new and Pattern 2 was possible
+                 logger.debug(f"Pattern 2 Check (len >= 2): messages[-2] ({request_data.messages[-2]}) != LFC ({last_final_chat_message})")
+
+        if is_new_session: # If neither pattern matched
+            logger.info("New session determined: Current messages do not form a recognized continuation pattern from the previous last message.")
+            if settings.debug_logging:
+                logger.debug(f"LFC was: {last_final_chat_message}")
+                logger.debug(f"Current messages: {request_data.messages}")
+    
+    # If after all checks, is_new_session is still True, it means it's genuinely a new session or an unmatchable pattern.
+
+    if is_new_session:
+        if copilot_client_instance and hasattr(copilot_client_instance, 'reinitialize_page_session'):
+            logger.info("Attempting to reinitialize Copilot page session.")
+            if not await copilot_client_instance.reinitialize_page_session():
+                logger.error("Failed to reinitialize Copilot page session. Service might be unavailable.")
+                raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to reinitialize Copilot page session.")
+            logger.info("Copilot page session reinitialized successfully.")
+            # Re-evaluate actual_processing_mode and final_prompt if message_mode is 'all'
+            # because is_first_message_sent is now False.
+            if settings.message_mode == "all":
+                logger.info("Re-evaluating processing mode for 'all' after session reinitialization.")
+                # The client's is_first_message_sent is now False.
+                # So, actual_processing_mode should become 'all'.
+                actual_processing_mode = "all" # Force it for this reinitialized "first" message
+                logger.info(f"Processing mode for reinitialized session set to: {actual_processing_mode}")
+                
+                # Reconstruct final_prompt using "all" messages
+                messages_with_roles = []
+                for message in request_data.messages:
+                    current_content_str = ""
+                    if isinstance(message.content, str):
+                        current_content_str = message.content.strip()
+                    elif isinstance(message.content, list):
+                        temp_content_list = []
+                        for block_item in message.content: # Renamed 'block' to 'block_item' to avoid conflict
+                            if isinstance(block_item, TextContentBlock) and block_item.type == "text":
+                                temp_content_list.append(block_item.text.strip())
+                            elif isinstance(block_item, dict) and block_item.get("type") == "text":
+                                temp_content_list.append(block_item.get("text", "").strip())
+                        current_content_str = "\n".join(temp_content_list).strip()
+
+                    if current_content_str:
+                        role_prefix = ""
+                        if message.role == "system": role_prefix = "System: "
+                        elif message.role == "user": role_prefix = "User: "
+                        elif message.role == "assistant": role_prefix = "Assistant: "
+                        messages_with_roles.append(f"{role_prefix}{current_content_str}")
+                
+                new_final_prompt = "\n\n".join(messages_with_roles)
+                if not new_final_prompt:
+                    logger.warning("Reconstructed prompt for reinitialized 'all' mode is empty. This is unexpected.")
+                    # Fallback or raise error? For now, let original final_prompt (if any) be used, or it will be caught by later checks.
+                else:
+                    final_prompt = new_final_prompt # Update the final_prompt to be sent
+                    logger.info(f"Reconstructed prompt for Copilot (after reinit): {format_prompt_for_logging(final_prompt, settings.debug_logging)}")
+
+        elif copilot_client_instance:
+             logger.warning("Copilot client instance does not support reinitialize_page_session. Proceeding with current session state.")
+        else:
+            logger.error("Copilot client instance is None. Cannot reinitialize session.")
+            # This should ideally be caught earlier by the instance check.
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Copilot client instance is None.")
+    # --- End Session Reinitialization Logic ---
+
     # Ensure client is connected and page is initialized before sending message
-    if not await copilot_client_instance.connect():
+    # The connect() call here ensures that if the client wasn't connected at all (e.g. first request, or after a full close),
+    # it attempts to connect. If reinitialize_page_session was called, it should have handled re-navigation.
+    # If reinitialize_page_session was not supported or failed, connect() might try to establish a fresh connection
+    # or re-establish a lost one.
+    if not await copilot_client_instance.connect(): # This connect() might be redundant if reinitialize_page_session succeeded and did its own navigation.
+                                                 # However, it's a good fallback if reinitialization wasn't needed or failed partially.
+                                                 # BaseClient.connect() itself checks if already connected.
          raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to connect or initialize Copilot client.")
 
     if request_data.stream:
+        # Successfully processed up to this point, update last_final_chat_message
+        if request_data.messages:
+            last_final_chat_message = request_data.messages[-1]
+        else: # Should not happen if validation passed
+            last_final_chat_message = None
         return StreamingResponse(stream_response_generator(final_prompt), media_type="text/event-stream")
     else:
         # Non-streaming response
@@ -437,6 +539,11 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
             choice = ChatCompletionChoice(
                 message=assistant_response_message
             )
+            # Successfully processed up to this point, update last_final_chat_message
+            if request_data.messages:
+                last_final_chat_message = request_data.messages[-1]
+            else: # Should not happen if validation passed
+                last_final_chat_message = None
             return ChatCompletionResponse(choices=[choice], model=request_data.model)
 
         except RuntimeError as e_runtime: # Catch specific RuntimeError from CopilotClient

@@ -253,3 +253,36 @@ class M365CopilotClient(BaseCopilotClient):
                 # assume it was a "successful" interaction in terms of sending/receiving.
                 self.is_first_message_sent = True
             logger.debug("M365: send_message_and_get_response cycle finished.")
+
+    async def reinitialize_page_session(self) -> bool:
+        """
+        Reinitializes the page session for M365CopilotClient.
+        This involves:
+        1. Resetting client-specific state (current_m365_chat_ws_request_id, last_full_response_text, is_first_message_sent).
+        2. Resetting the base client's page initialization status.
+        3. Re-navigating to the Copilot URL and re-initializing CDP domains.
+        """
+        logger.info("Reinitializing page session for M365CopilotClient...")
+
+        # Reset client-specific state
+        self.current_m365_chat_ws_request_id = None
+        self.last_full_response_text = ""
+        self.is_first_message_sent = False
+        logger.debug("M365CopilotClient state reset (current_m365_chat_ws_request_id, last_full_response_text, is_first_message_sent).")
+
+        # Reset base client's page initialization status
+        self.is_page_initialized = False
+
+        # Re-navigate and initialize CDP domains
+        if not self.is_browser_cdp_connected or not self.page_cdp_session_id:
+            logger.error("Cannot reinitialize page session: Browser CDP not connected or page not attached.")
+            logger.info("Attempting full reconnect for M365 client...")
+            return await self.connect()
+
+        logger.info(f"M365: Re-navigating to {self.copilot_url} and re-initializing CDP domains...")
+        if not await self._navigate_and_initialize_cdp_domains(self.copilot_url, self.user_input_selector):
+            logger.error(f"M365: Failed to re-navigate to {self.copilot_url} or re-initialize CDP domains during session reinitialization.")
+            return False
+
+        logger.info("M365CopilotClient page session reinitialized successfully.")
+        return True

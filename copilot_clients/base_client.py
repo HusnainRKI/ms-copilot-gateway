@@ -446,6 +446,15 @@ class BaseCopilotClient(ABC):
         if False: # pragma: no cover
             yield ""
 
+    @abstractmethod
+    async def reinitialize_page_session(self) -> bool:
+        """
+        Reinitializes the current page session.
+        This typically involves resetting client-specific state related to the page
+        and then calling self._navigate_and_initialize_cdp_domains() to reload the page.
+        Returns True if successful, False otherwise.
+        """
+        pass
 
     async def close(self):
         logger.info("Closing BaseCopilotClient...")
