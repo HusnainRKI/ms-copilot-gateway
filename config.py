@@ -15,7 +15,6 @@ class CopilotSettings(BaseModel):
 class AppSettings(BaseModel):
     """Application-wide settings."""
     # General settings
-    message_mode: str = "last"
     debug_logging: bool = False
     host: str = "0.0.0.0"
     port: int = 8000

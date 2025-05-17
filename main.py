@@ -318,44 +318,29 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
     processed_prompt_str = ""
 
     # Determine the actual processing mode based on settings and whether it's the first message.
-    actual_processing_mode = settings.message_mode
-    if settings.message_mode == "all":
-        # Check if the client instance exists and is of a type that tracks 'is_first_message_sent'
-        # Check for StandardCopilotClient or M365CopilotClient for is_first_message_sent logic
-        from copilot_clients.standard_client import StandardCopilotClient # Local import for isinstance
-        from copilot_clients.m365_client import M365CopilotClient # Local import for isinstance
-        
-        client_supports_first_message_logic = False
-        if copilot_client_instance and (isinstance(copilot_client_instance, StandardCopilotClient) or isinstance(copilot_client_instance, M365CopilotClient)):
-            client_supports_first_message_logic = True
+    # Determine actual_processing_mode based on client's is_first_message_sent state
+    # This ensures that for the first message of any session (including after reinitialization),
+    # we process all messages, and for subsequent messages, only the last.
+    client_is_definitely_not_on_first_message = False
+    if copilot_client_instance:
+        from copilot_clients.standard_client import StandardCopilotClient # Local import
+        from copilot_clients.m365_client import M365CopilotClient # Local import
+        if isinstance(copilot_client_instance, (StandardCopilotClient, M365CopilotClient)):
+            if copilot_client_instance.is_first_message_sent: # True means it's NOT the first message
+                client_is_definitely_not_on_first_message = True
+            if settings.debug_logging:
+                 logger.debug(f"Client state for processing mode decision: copilot_client_instance.is_first_message_sent = {copilot_client_instance.is_first_message_sent}")
+        elif settings.debug_logging:
+            logger.debug("Client instance is not StandardCopilotClient or M365CopilotClient, is_first_message_sent state not applicable for mode decision here.")
+    elif settings.debug_logging:
+        logger.debug("Copilot client instance is None, cannot determine is_first_message_sent.")
 
-        if settings.debug_logging and copilot_client_instance and hasattr(copilot_client_instance, 'is_first_message_sent'):
-            logger.debug(f"State before determining actual_processing_mode: copilot_client_instance.is_first_message_sent = {getattr(copilot_client_instance, 'is_first_message_sent', 'N/A')}")
-
-        if client_supports_first_message_logic:
-            # This type assertion is safe due to the isinstance check above.
-            # However, to satisfy type checkers more broadly without needing a common interface for is_first_message_sent yet:
-            client_instance_with_flag = typing.cast(typing.Union[StandardCopilotClient, M365CopilotClient], copilot_client_instance)
-            if client_instance_with_flag.is_first_message_sent:
-                logger.info(f"Message mode 'all' configured for {type(copilot_client_instance).__name__}, but this is not the first message. Switching to 'last' mode.")
-                actual_processing_mode = "last"
-            else:
-                logger.info(f"Message mode 'all' configured for {type(copilot_client_instance).__name__}, and this is the first message. Using 'all' mode.")
-        elif copilot_client_instance: # Client exists but is not one of the types we handle for first_message_sent
-             logger.info(f"Message mode 'all' configured for client type {type(copilot_client_instance).__name__}. 'is_first_message_sent' flag not specifically handled for this type in main.py, using 'all' mode as configured.")
-        else: # copilot_client_instance is None (should be caught by earlier checks)
-            logger.warning("Message mode 'all', but copilot_client_instance is None. Defaulting to 'all' (will likely fail later).")
-
-    elif settings.message_mode == "last":
-        logger.info("Message mode 'last' configured. Using 'last' mode.")
-        actual_processing_mode = "last" # Explicitly set, though it's already the default for this branch
-    # else:
-        # This case should not be reached if choices are enforced by argparse.
-        # logger.warning(f"Unknown message_mode '{settings.message_mode}', defaulting to 'last'.")
-        # actual_processing_mode = "last"
-
-
-    logger.info(f"Processing messages with actual mode: {actual_processing_mode}")
+    if client_is_definitely_not_on_first_message:
+        actual_processing_mode = "last"
+        logger.info("Processing mode: 'last' (subsequent message in an ongoing session).")
+    else:
+        actual_processing_mode = "all"
+        logger.info("Processing mode: 'all' (first message of a session, or client state indicates first message).")
 
     if actual_processing_mode == "last":
         user_message_to_process = None
@@ -458,44 +443,41 @@ async def chat_completions(request_data: ChatCompletionRequest, raw_request: Req
                 logger.error("Failed to reinitialize Copilot page session. Service might be unavailable.")
                 raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Failed to reinitialize Copilot page session.")
             logger.info("Copilot page session reinitialized successfully.")
-            # Re-evaluate actual_processing_mode and final_prompt if message_mode is 'all'
-            # because is_first_message_sent is now False.
-            if settings.message_mode == "all":
-                logger.info("Re-evaluating processing mode for 'all' after session reinitialization.")
-                # The client's is_first_message_sent is now False.
-                # So, actual_processing_mode should become 'all'.
-                actual_processing_mode = "all" # Force it for this reinitialized "first" message
-                logger.info(f"Processing mode for reinitialized session set to: {actual_processing_mode}")
-                
-                # Reconstruct final_prompt using "all" messages
-                messages_with_roles = []
-                for message in request_data.messages:
-                    current_content_str = ""
-                    if isinstance(message.content, str):
-                        current_content_str = message.content.strip()
-                    elif isinstance(message.content, list):
-                        temp_content_list = []
-                        for block_item in message.content: # Renamed 'block' to 'block_item' to avoid conflict
-                            if isinstance(block_item, TextContentBlock) and block_item.type == "text":
-                                temp_content_list.append(block_item.text.strip())
-                            elif isinstance(block_item, dict) and block_item.get("type") == "text":
-                                temp_content_list.append(block_item.get("text", "").strip())
-                        current_content_str = "\n".join(temp_content_list).strip()
+            # This is now the "first message" of a new session.
+            # Force actual_processing_mode to "all" and reconstruct final_prompt.
+            actual_processing_mode = "all"
+            logger.info(f"Processing mode for reinitialized session explicitly set to: {actual_processing_mode}")
 
-                    if current_content_str:
-                        role_prefix = ""
-                        if message.role == "system": role_prefix = "System: "
-                        elif message.role == "user": role_prefix = "User: "
-                        elif message.role == "assistant": role_prefix = "Assistant: "
-                        messages_with_roles.append(f"{role_prefix}{current_content_str}")
-                
-                new_final_prompt = "\n\n".join(messages_with_roles)
-                if not new_final_prompt:
-                    logger.warning("Reconstructed prompt for reinitialized 'all' mode is empty. This is unexpected.")
-                    # Fallback or raise error? For now, let original final_prompt (if any) be used, or it will be caught by later checks.
-                else:
-                    final_prompt = new_final_prompt # Update the final_prompt to be sent
-                    logger.info(f"Reconstructed prompt for Copilot (after reinit): {format_prompt_for_logging(final_prompt, settings.debug_logging)}")
+            # Reconstruct final_prompt using "all" messages from request_data
+            messages_for_prompt_reconstruction = []
+            for message_item in request_data.messages: # Iterate through original request messages
+                current_content_str_rebuild = ""
+                if isinstance(message_item.content, str):
+                    current_content_str_rebuild = message_item.content.strip()
+                elif isinstance(message_item.content, list):
+                    temp_content_list_rebuild = []
+                    for block_content in message_item.content: # Renamed 'block' to avoid conflict
+                        if isinstance(block_content, TextContentBlock) and block_content.type == "text":
+                            temp_content_list_rebuild.append(block_content.text.strip())
+                        elif isinstance(block_content, dict) and block_content.get("type") == "text":
+                            temp_content_list_rebuild.append(block_content.get("text", "").strip())
+                    current_content_str_rebuild = "\n".join(temp_content_list_rebuild).strip()
+
+                if current_content_str_rebuild:
+                    role_prefix_rebuild = ""
+                    if message_item.role == "system": role_prefix_rebuild = "System: "
+                    elif message_item.role == "user": role_prefix_rebuild = "User: "
+                    elif message_item.role == "assistant": role_prefix_rebuild = "Assistant: "
+                    messages_for_prompt_reconstruction.append(f"{role_prefix_rebuild}{current_content_str_rebuild}")
+            
+            reconstructed_final_prompt = "\n\n".join(messages_for_prompt_reconstruction)
+            
+            if not reconstructed_final_prompt:
+                logger.warning("Reconstructed prompt for reinitialized 'all' mode is empty. This is unexpected. Original final_prompt will be used if not empty, or error may occur.")
+                # If original final_prompt was also empty, the check at line ~412 (original numbering) will catch it.
+            else:
+                final_prompt = reconstructed_final_prompt # IMPORTANT: Update the final_prompt to be sent
+                logger.info(f"Reconstructed prompt for Copilot (after reinit): {format_prompt_for_logging(final_prompt, settings.debug_logging)}")
 
         elif copilot_client_instance:
              logger.warning("Copilot client instance does not support reinitialize_page_session. Proceeding with current session state.")
@@ -610,13 +592,6 @@ async def main():
     parser.add_argument("--host", type=str, default=settings.host, help="Host for the server.")
     parser.add_argument("--port", type=int, default=settings.port, help="Port for the server.")
     parser.add_argument(
-        "--message-mode",
-        type=str,
-        choices=["last", "all"],
-        default=settings.message_mode,
-        help="Defines how messages are processed: 'last' (only the last user message) or 'all' (all messages concatenated)."
-    )
-    parser.add_argument(
         "--debug-logging",
         action="store_true", # Action 'store_true' implies default is False if not specified.
                               # If we want the default from settings to be True if settings.debug_logging is True,
@@ -645,7 +620,6 @@ async def main():
     # For other args, the default from settings is used if not provided on CLI.
     settings.host = args.host
     settings.port = args.port
-    settings.message_mode = args.message_mode
     settings.copilot_type = args.copilot_type
 
 
@@ -678,7 +652,6 @@ async def main():
             logger.info("Stdio mode client cleanup complete.")
     else:
         # Server mode: FastAPI app with lifespan will handle client
-        logger.info(f"Message processing mode set to: {settings.message_mode}")
         logger.info(f"Debug logging enabled: {settings.debug_logging}")
         logger.info(f"Copilot type selected: {settings.copilot_type}")
         logger.info(f"Starting ChatGPT-compatible server on http://{settings.host}:{settings.port}")

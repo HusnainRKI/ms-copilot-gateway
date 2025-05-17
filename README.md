@@ -47,14 +47,14 @@ This project provides a functional gateway to Copilot. Further enhancements and 
 *   **Character Limits**:
     *   Standard Microsoft Copilot (`copilot.microsoft.com`) typically has a character limit of around 10,240 characters.
     *   Microsoft 365 Copilot is reported to have a character limit of around 8,000 characters.
-    *   This gateway's `--message-mode all` (for sending full conversation history on the first turn) combined with long system prompts can easily exceed these limits. For subsequent turns in a conversation when using `--message-mode all` with the standard Copilot client, the gateway now attempts to send only the last user message.
-*   **No File Attachment Support**: This gateway currently does not support file attachments. Interactions are limited to text-based prompts and responses.
+    *   The gateway now always processes the full conversation history from the client's request to construct the prompt sent to Copilot. Combined with long system prompts from the client, this can easily exceed Copilot's character limits.
+    *   **No File Attachment Support**: This gateway currently does not support file attachments. Interactions are limited to text-based prompts and responses.
 *   **Dedicated Debugging Profile**: For Chrome DevTools Protocol (CDP) automation, this script launches Microsoft Edge with a dedicated, separate user profile (typically located at `%TEMP%/edge_debug_profile_temp` or a similar path in your system's temporary directory, as defined by `debug_profile_dir` in [`config.py`](config.py:1)). This is a **necessary** measure due to security enhancements in Chromium-based browsers (including Edge version 136 and later).
     *   **Security Background**: Chromium intentionally restricts the use of the `--remote-debugging-port` (or `--remote-debugging-pipe`) with the *default* user data directory. This is a security measure to prevent malicious actors from exploiting the remote debugging feature to access sensitive user data, especially cookies, from the user's main profile.
     *   **Why a Separate Profile is Required**: To enable remote debugging for automation, a custom (non-default) user data directory must be specified (via the `--user-data-dir` switch). This script adheres to this requirement by creating and using a temporary profile. This ensures that the automation operates in an isolated environment, separate from your main browser profile and its data. It also uses a different encryption key for any data stored within this temporary profile, further protecting your main profile's data.
     *   **Data Handling**: Consequently, any browsing history, cookies, or site data (including logins) generated during the script's operation will be isolated to this temporary profile. If you log into any accounts or enter sensitive information, this data will reside in this separate profile directory. This script does not automatically clear this temporary profile upon exit. Please be mindful of any sensitive data that might be stored there if you perform such actions.
 *   **Session Handling**:
-*   The gateway attempts to detect new conversation sessions by comparing the history of `ChatMessage` objects from the client. If the current request's message history doesn't appear to be a direct continuation of the previous request's last message (checking a couple of common continuation patterns), it's considered a new session, and the Copilot page is reloaded. This ensures that system prompts and full history are sent for the first turn of the new session if `message_mode` is set to "all".
+*   The gateway attempts to detect new conversation sessions by comparing the history of `ChatMessage` objects from the client. If the current request's message history doesn't appear to be a direct continuation of the previous request's last message (checking a couple of common continuation patterns), it's considered a new session, and the Copilot page is reloaded. On the first turn of any session (including a newly reinitialized one), the gateway processes all messages from the client's request (typically including system prompts and the initial user prompt) to construct the prompt sent to Copilot. For subsequent turns within the same session, only the latest user message is processed to construct the prompt, helping to manage token limits.
 *   This means that features in some AI editors that allow "re-generating" or "editing and re-sending" a previous prompt in the middle of a conversation might not work as expected, as they could be interpreted as a new session by the gateway. The gateway is designed for sequential, additive conversation flows.
 
 ### Key Enhancements
@@ -99,14 +99,7 @@ This mode starts an HTTP server compatible with the OpenAI Chat Completions API.
     ```bash
     python main.py --host 127.0.0.1 --port 8888
     ```
-3.  To control how user messages from the client request are processed by the gateway before sending to Copilot, use the `--message-mode` option:
-    *   `last` (default): Only the content of the last message with `role: "user"` is sent to Copilot.
-    *   `all`: The content of all messages in the request are concatenated and sent to Copilot as a single prompt.
-    Example:
-    ```bash
-    python main.py --message-mode all --port 8888
-    ```
-4.  To select the Copilot service to connect to (defaults to `standard`):
+3.  To select the Copilot service to connect to (defaults to `standard`):
     *   `standard`: Connects to `copilot.microsoft.com`.
     *   `m365`: Connects to `m365.cloud.microsoft` (experimental, requires appropriate M365 Copilot access and may need configuration adjustments in `config.py`).
     ```bash
