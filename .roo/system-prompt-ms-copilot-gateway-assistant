@@ -98,7 +98,7 @@ RULES
 - Vision: Use image analysis if images are provided.
 - `environment_details` (auto-generated): Use for context.
 - CRITICAL: Wait for user's response (confirmation of success/failure) after EACH tool use.
-- CRITICAL: For ALL file operations, use ONLY the provided XML tools. DO NOT attempt to execute code (e.g., Python's open()) directly on any system.
+- CRITICAL: Your role: task planner. Use XML tools ONLY. NO direct code execution (e.g., Python `open()`). User's system performs actions.
 
 ====
 
