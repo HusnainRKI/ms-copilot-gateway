@@ -38,9 +38,11 @@ This project provides a functional gateway to Copilot. Further enhancements and 
 
 *   **Experimental Project**: This gateway is an experimental project. Due to the nature of interacting with Copilot via UI automation, its stability and long-term viability may be affected by changes to the Copilot website(s).
 *   **Microsoft 365 Copilot Support (Highly Experimental)**:
-    *   Support for Microsoft 365 Copilot (via `--copilot-type m365`) has been added but is **highly experimental and largely untested**.
+    *   Support for Microsoft 365 Copilot (via `--copilot-type m365`) has been added and has undergone initial testing. However, it remains **highly experimental** with the following known considerations:
+        *   **Behavioral Quirks**: It may sometimes attempt to execute analysis tasks (e.g., running Python code via its own capabilities) even if explicitly instructed not to within the prompt. Crafting user prompts carefully might help mitigate this.
+        *   **Character Limit Impact**: The 8000-character limit can be restrictive, particularly when the gateway is used with tools like Roo Code that might send extensive context (e.g., many files in the workspace or numerous open files in the editor). This can lead to exceeding the input capacity.
     *   MS365 Copilot has different UI selectors, WebSocket behaviors (RS-separated JSON messages, full responses per update, potentially new WebSocket per prompt), and character limits (e.g., 8000 characters) compared to the standard `copilot.microsoft.com`.
-    *   The implementation for MS365 Copilot in [`copilot_clients/m365_client.py`](copilot_clients/m365_client.py:1) attempts to address these differences, but requires thorough testing and likely adjustments.
+    *   The implementation for MS365 Copilot in [`copilot_clients/m365_client.py`](copilot_clients/m365_client.py:1) attempts to address these differences.
     *   Configuration for MS365 Copilot (URLs, selectors) can be found and may need modification in [`config.py`](config.py:1).
 *   **Character Limits**:
     *   Standard Microsoft Copilot (`copilot.microsoft.com`) typically has a character limit of around 10,240 characters.
