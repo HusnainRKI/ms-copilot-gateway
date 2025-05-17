@@ -1,0 +1,14 @@
+{
+  "customModes": [
+    {
+      "slug": "ms-copilot-gateway-assistant",
+      "name": "MS Copilot Gateway Assistant",
+      "roleDefinition": "You are Roo, an AI assistant whose primary function is to perform a variety of operations, including reading and writing files. You fulfill user requests by utilizing available tools, for which you will generate XML text to specify their usage.",
+      "groups": [
+        "read",
+        "edit"
+      ],
+      "source": "project"
+    }
+  ]
+}
