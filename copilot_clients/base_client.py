@@ -226,10 +226,10 @@ class BaseCopilotClient(ABC):
         if not await self._launch_edge_if_needed():
             return False
         if not await self._connect_to_browser_cdp_ws():
-            await self.close() # Cleanup Edge if CDP connection failed
+            await self.close(error_context="Failed to connect to browser CDP WebSocket") # Cleanup Edge if CDP connection failed
             return False
         if not await self._find_page_target_and_attach():
-            await self.close() # Cleanup Edge and CDP if page attach failed
+            await self.close(error_context="Failed to find page target and attach") # Cleanup Edge and CDP if page attach failed
             return False
         
         logger.info("Successfully connected to browser and attached to page target.")
@@ -456,7 +456,17 @@ class BaseCopilotClient(ABC):
         """
         pass
 
-    async def close(self):
+    async def close(self, error_context: typing.Optional[str] = None):
+        if error_context:
+            print(f"\nAn error occurred: {error_context}")
+            print("The browser is about to close.")
+            try:
+                input("Press Enter to continue and close the browser...")
+            except KeyboardInterrupt:
+                print("\nKeyboard interrupt received. Closing browser immediately.")
+            except EOFError: # Happens if stdin is not available (e.g. running as a service)
+                logger.warning("EOFError encountered waiting for user input. Proceeding with browser close.")
+
         logger.info("Closing BaseCopilotClient...")
         if self.browser_cdp_ws:
             try:

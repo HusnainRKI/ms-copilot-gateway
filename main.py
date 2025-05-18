@@ -264,6 +264,8 @@ async def stream_response_generator(prompt: str):
 
     except RuntimeError as e_runtime: # Catch specific RuntimeError from CopilotClient
         logger.error(f"RuntimeError during streaming from CopilotClient: {e_runtime}")
+        if copilot_client_instance: # Ensure instance exists before calling close
+            await copilot_client_instance.close(error_context=f"RuntimeError in stream_response_generator: {str(e_runtime)}")
         error_delta = ChatCompletionStreamChoiceDelta(content=f"Error communicating with Copilot: {str(e_runtime)}")
         error_choice = ChatCompletionStreamChoice(delta=error_delta, finish_reason="error")
         error_response_obj = ChatCompletionStreamResponse(
@@ -274,6 +276,8 @@ async def stream_response_generator(prompt: str):
         yield f"data: {error_response_obj.model_dump_json()}\n\n"
     except Exception as e_general: # Catch any other unexpected errors
         logger.exception(f"Unexpected error during streaming: {e_general}")
+        if copilot_client_instance: # Ensure instance exists before calling close
+            await copilot_client_instance.close(error_context=f"Unexpected error in stream_response_generator: {str(e_general)}")
         # import traceback # No longer needed, logger.exception handles it
         # traceback.print_exc()
         error_delta = ChatCompletionStreamChoiceDelta(content=f"An unexpected error occurred: {str(e_general)}")
