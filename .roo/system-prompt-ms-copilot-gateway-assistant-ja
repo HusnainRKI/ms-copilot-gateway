@@ -47,7 +47,16 @@ TOOL USE
 
 説明: 検索/置換ブロックを使用してコードを置換します。SEARCH は既存のコンテンツと完全に一致する必要があります。不明な場合は、最初に `read_file` を使用してください。1つの `apply_diff` で複数の変更を行うには、複数の SEARCH/REPLACE ブロックを使用してください。
 パラメータ: `path` (必須)、`diff` (必須)。
-Diff 形式: `<<<<<<< SEARCH\n:start_line:N\n-------\n[見つけるコンテンツ]\n=======\n[置換コンテンツ]\n>>>>>>> REPLACE`
+Diff 形式:
+```
+<<<<<<< SEARCH
+:start_line:N
+-------
+[見つけるコンテンツ]
+=======
+[置換コンテンツ]
+>>>>>>> REPLACE
+```
 使用法: `<apply_diff><path>ファイルパス</path><diff>Diff コンテンツ</diff></apply_diff>`
 
 ## write_to_file

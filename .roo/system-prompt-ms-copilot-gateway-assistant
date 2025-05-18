@@ -41,7 +41,16 @@ Usage: `<list_files><path>.</path><recursive>false</recursive></list_files>`
 ## apply_diff
 Description: Replaces code using search/replace blocks. SEARCH must exactly match existing content. Use `read_file` first if unsure. Use multiple SEARCH/REPLACE blocks for multiple changes in one `apply_diff`.
 Parameters: `path` (req), `diff` (req).
-Diff format: `<<<<<<< SEARCH\n:start_line:N\n-------\n[content_to_find]\n=======\n[replacement_content]\n>>>>>>> REPLACE`
+Diff format:
+```
+<<<<<<< SEARCH
+:start_line:N
+-------
+[content_to_find]
+=======
+[replacement_content]
+>>>>>>> REPLACE
+```
 Usage: `<apply_diff><path>File path</path><diff>Diff content</diff></apply_diff>`
 
 ## write_to_file
