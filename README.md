@@ -44,11 +44,13 @@ This project provides a functional gateway to Copilot. Further enhancements and 
     *   MS365 Copilot has different UI selectors, WebSocket behaviors (RS-separated JSON messages, full responses per update, potentially new WebSocket per prompt), and character limits (e.g., 8000 characters) compared to the standard `copilot.microsoft.com`.
     *   The implementation for MS365 Copilot in [`copilot_clients/m365_client.py`](copilot_clients/m365_client.py:1) attempts to address these differences.
     *   Configuration for MS365 Copilot (URLs, selectors) can be found and may need modification in [`config.py`](config.py:1).
+    *   **Turn Limit**: M365 Copilot has a conversation turn limit, reportedly around 30 turns (i.e., you can send up to 30 messages, but the 31st may fail).
 *   **Character Limits**:
     *   Standard Microsoft Copilot (`copilot.microsoft.com`) typically has a character limit of around 10,240 characters.
     *   Microsoft 365 Copilot is reported to have a character limit of around 8,000 characters.
     *   The gateway now always processes the full conversation history from the client's request to construct the prompt sent to Copilot. Combined with long system prompts from the client, this can easily exceed Copilot's character limits.
     *   **No File Attachment Support**: This gateway currently does not support file attachments. Interactions are limited to text-based prompts and responses.
+    *   **Handling Limit Errors**: If your message exceeds the character limit, the Copilot web interface (in your browser) will typically display an error message stating the message cannot be sent. The gateway's interaction will be paused at this point. To continue, you must manually shorten your message content directly in the Copilot chat input within the browser and then resend it.
 *   **Dedicated Debugging Profile**: For Chrome DevTools Protocol (CDP) automation, this script launches Microsoft Edge with a dedicated, separate user profile (typically located at `%TEMP%/edge_debug_profile_temp` or a similar path in your system's temporary directory, as defined by `debug_profile_dir` in [`config.py`](config.py:1)). This is a **necessary** measure due to security enhancements in Chromium-based browsers (including Edge version 136 and later).
     *   **Security Background**: Chromium intentionally restricts the use of the `--remote-debugging-port` (or `--remote-debugging-pipe`) with the *default* user data directory. This is a security measure to prevent malicious actors from exploiting the remote debugging feature to access sensitive user data, especially cookies, from the user's main profile.
     *   **Why a Separate Profile is Required**: To enable remote debugging for automation, a custom (non-default) user data directory must be specified (via the `--user-data-dir` switch). This script adheres to this requirement by creating and using a temporary profile. This ensures that the automation operates in an isolated environment, separate from your main browser profile and its data. It also uses a different encryption key for any data stored within this temporary profile, further protecting your main profile's data.
@@ -56,6 +58,12 @@ This project provides a functional gateway to Copilot. Further enhancements and 
 *   **Session Handling**:
 *   The gateway attempts to detect new conversation sessions by comparing the history of `ChatMessage` objects from the client. If the current request's message history doesn't appear to be a direct continuation of the previous request's last message (checking a couple of common continuation patterns), it's considered a new session, and the Copilot page is reloaded. On the first turn of any session (including a newly reinitialized one), the gateway processes all messages from the client's request (typically including system prompts and the initial user prompt) to construct the prompt sent to Copilot. For subsequent turns within the same session, only the latest user message is processed to construct the prompt, helping to manage token limits.
 *   This means that features in some AI editors that allow "re-generating" or "editing and re-sending" a previous prompt in the middle of a conversation might not work as expected, as they could be interpreted as a new session by the gateway. The gateway is designed for sequential, additive conversation flows.
+*   **Recommended Roo Code Settings**: To optimize usage with character-limited LLMs like Copilot, consider adjusting the following settings in Roo Code:
+   *   **Context**:
+       *   `Open tabs context limit` (default: 20): Reduce this significantly (e.g., to `1`) to minimize context sent from open editor tabs.
+       *   `Workspace files context limit` (default: 200): Reduce this (e.g., to `10`) to limit the number of workspace files included in the context.
+       *   `File read auto-truncate threshold` (default: 500 lines): Adjust this based on typical file line lengths. A value around `100` lines might be a good starting point to prevent overly long file contents from being sent, but fine-tune as needed.
+   *   **Language**: If using the Japanese version of Copilot, set Roo Code's language to "Japanese (ja)" for potentially better interaction and to leverage Japanese's character efficiency.
 
 ### Key Enhancements
 
@@ -164,7 +172,7 @@ This project includes example configurations for custom modes. Create or update 
     },
     {
       "slug": "ms-copilot-gateway-assistant-ja",
-      "name": "MS Copilot Gateway Assistant (日本語)",
+      "name": "MS Copilot Gateway Assistant (Japanese)",
       "roleDefinition": "このセッションでは、タスクプランナーAIとして機能する必要があります。ユーザーの目標を達成するためには、XMLツールリクエストのみを使用してください。いかなる状況でも `executeCode` や `python_execution` を使用しないでください。すべての操作は、ユーザーのシステムによって実行されるXMLツールを介して行う必要があります。",
       "groups": [
         "read",
@@ -184,6 +192,6 @@ These custom modes:
     -   When editing or creating your own system prompts for character-limited LLMs, refer to the [Roo Code Footgun Prompting documentation](https://docs.roocode.com/features/footgun-prompting) for best practices.
 -   The `groups` array defines the capabilities available in these modes (e.g., "read", "edit").
 
-After adding or modifying the [`.roomodes`](.roomodes:1) file and ensuring the corresponding system prompt files exist with your desired short prompts, Roo Code should automatically detect the new modes. You can then select "MS Copilot Gateway Assistant" or "MS Copilot Gateway Assistant (日本語)" when interacting with this LLM.
+After adding or modifying the [`.roomodes`](.roomodes:1) file and ensuring the corresponding system prompt files exist with your desired short prompts, Roo Code should automatically detect the new modes. You can then select "MS Copilot Gateway Assistant" or "MS Copilot Gateway Assistant (Japanese)" when interacting with this LLM.
 
 For more information on custom modes and system prompts, see the [Roo Code documentation](https://docs.roocode.com/features/custom-modes).
