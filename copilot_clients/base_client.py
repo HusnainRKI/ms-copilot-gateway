@@ -79,7 +79,8 @@ class BaseCopilotClient(ABC):
             "--no-default-browser-check",
             "--no-restore-session-state", # Prevents restoring previous session
             "--restore-last-session=false", # Double ensure no session restore
-            "--disable-session-crashed-bubble"
+            "--disable-session-crashed-bubble",
+            # "--auto-open-devtools-for-tabs", # Uncomment this line to automatically open DevTools for each new tab. Useful for debugging.
         ]
         if self.debug_profile_dir:
             edge_args.append(f"--user-data-dir={self.debug_profile_dir}")
