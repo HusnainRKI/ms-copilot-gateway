@@ -8,9 +8,9 @@ The general architecture is as follows:
 
 ```mermaid
 graph LR
-    A[Your AI Editor / Client] -- OpenAI API Request --> B(MS Copilot Gateway);
+    A["AI Editor (e.g., Roo Code)"] -- OpenAI API Request --> B("**MS Copilot Gateway** (Python)");
     B -- CDP Commands --> C(Microsoft Edge);
-    C -- User Input & WebSocket --> D(Microsoft Copilot Website);
+    C -- User Input & WebSocket --> D("Microsoft Copilot / M365 Copilot");
     D -- WebSocket Response --> C;
     C -- CDP Events --> B;
     B -- OpenAI API Response --> A;
