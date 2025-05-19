@@ -584,6 +584,9 @@ async def main_stdio_repl(client: BaseCopilotClient): # Updated type hint
             continue # Allow user to continue or exit cleanly
         except Exception as e_repl:
             logger.exception(f"\nError in REPL loop: {e_repl}")
+            if client: # Ensure client object exists
+                # Pass the error to client.close() to trigger "wait for input"
+                await client.close(error_context=f"Error in REPL loop: {str(e_repl)}")
             break # Exit on other errors
 
 async def main():
