@@ -54,13 +54,15 @@ class StandardCopilotClient(BaseCopilotClient):
             logger.error("Cannot capture chat WebSocket ID: Browser CDP WebSocket not connected or page not attached.")
             return False
 
-        logger.info(f"Starting chat WebSocket ID capture for filter: {self.websocket_url_filter}...")
-        timeout_seconds = 20
-        start_time = time.monotonic()
+        logger.info(f"Starting chat WebSocket ID capture for filter: {self.websocket_url_filter} (timeout: unlimited)...")
+        # timeout_seconds = 300  # Increased timeout # Removed for unlimited timeout
+        # start_time = time.monotonic() # Removed for unlimited timeout
 
         try:
-            while time.monotonic() - start_time < timeout_seconds:
+            while True: # Loop indefinitely until ID is captured or task is cancelled
                 try:
+                    # Using a short timeout for recv() to allow periodic checks for cancellation
+                    # or other conditions if needed in the future, rather than blocking indefinitely on recv().
                     message_str = await asyncio.wait_for(self.browser_cdp_ws.recv(), timeout=1.0)
                     data = json.loads(message_str)
 
@@ -80,8 +82,10 @@ class StandardCopilotClient(BaseCopilotClient):
                     logger.warning(f"Inner exception during WebSocket ID capture: {e_inner}")
                     await asyncio.sleep(0.1) # Brief pause before retrying recv
             
-            logger.warning(f"Chat WebSocket ID not found within {timeout_seconds}s for filter: {self.websocket_url_filter}")
-            return False
+            # This part of the code (timeout warning) will not be reached if the loop is `while True`
+            # and the only exit is via returning True or an exception.
+            # logger.warning(f"Chat WebSocket ID not found within {timeout_seconds}s for filter: {self.websocket_url_filter}")
+            # return False # This line is now unreachable due to `while True`
         except asyncio.CancelledError:
             logger.info("Chat WebSocket ID capture task was cancelled.")
             raise # Re-raise cancellation
@@ -145,7 +149,7 @@ class StandardCopilotClient(BaseCopilotClient):
             try:
                 # The timeout for wait_for should be sufficient for the WS to be created and ID captured.
                 # _capture_chat_websocket_id itself has an internal timeout for recv.
-                capture_successful = await asyncio.wait_for(capture_task, timeout=25.0) # Increased timeout slightly
+                capture_successful = await asyncio.wait_for(capture_task, timeout=None) # Unlimited timeout
                 if not capture_successful or self.chat_websocket_request_id is None:
                     logger.error("WebSocket ID capture task logic completed but ID is still None or capture indicated failure.")
                     raise RuntimeError("Failed to capture chat WebSocket ID for monitoring after click.")
