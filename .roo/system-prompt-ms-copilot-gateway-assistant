@@ -61,7 +61,7 @@ ALWAYS provide the COMPLETE intended content of the file.
 
 ## search_and_replace
 Description: Finds and replaces text or regex patterns within a file.
-Parameters: `path` (req), `search` (req), `replace` (req), `start_line` (opt), `end_line` (opt), `use_regex` (opt: "true"), `ignore_case` (opt: "true").
+Parameters: `path` (req), `search` (req), `replace` (req), `start_line` (opt), `end_line` (opt), `use_regex` (opt: "true" to use regex), `ignore_case` (opt: "true" to ignore case).
 Usage: `<search_and_replace><path>file.txt</path><search>old</search><replace>new</replace></search_and_replace>`
 
 ## ask_followup_question

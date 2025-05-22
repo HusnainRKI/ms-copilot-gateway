@@ -69,7 +69,7 @@ Diff 形式:
 ## search_and_replace
 
 説明: ファイル内のテキストまたは正規表現パターンを検索して置換します。
-パラメータ: `path` (必須)、`search` (必須)、`replace` (必須)、`start_line` (任意)、`end_line` (任意)、`use_regex` (任意: "true")、`ignore_case` (任意: "true")。
+パラメータ: `path` (必須)、`search` (必須)、`replace` (必須)、`start_line` (任意)、`end_line` (任意)、`use_regex` (任意: "true" で正規表現)、`ignore_case` (任意: "true" で大文字小文字無視)。
 使用法: `<search_and_replace><path>file.txt</path><search>古い文字列</search><replace>新しい文字列</replace></search_and_replace>`
 
 ## ask_followup_question
