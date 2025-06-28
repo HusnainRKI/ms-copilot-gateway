@@ -36,7 +36,7 @@ class AppSettings(BaseModel):
     m365_copilot: CopilotSettings = CopilotSettings(
         copilot_url="https://m365.cloud.microsoft/chat", # Example, might need query params
         websocket_url_filter="wss://substrate.office.com/m365Copilot/Chathub/", # Example, likely needs more specifics
-        user_input_selector="span[role=combobox]", # Updated selector
+        user_input_selector="span[role=textbox]", # Updated selector
         submit_button_selector='button[type=submit]' # Updated selector
         # character_limit=8000 # For M365
     )
