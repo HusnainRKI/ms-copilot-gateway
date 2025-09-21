@@ -111,6 +111,10 @@ def get_cross_platform_browser_args(browser_path: str, debugging_port: int, debu
             "--disable-ipc-flooding-protection",
             "--disable-crash-reporter",
             "--disable-component-extensions-with-background-pages",
+            "--disable-breakpad",  # Disable crash reporting system
+            "--disable-client-side-phishing-detection",
+            "--disable-sync",
+            "--disable-features=VizDisplayCompositor",
             "--single-process"  # Run in single process mode for containers
         ])
     
