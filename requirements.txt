@@ -1,0 +1,10 @@
+# Core dependencies for MS Copilot Gateway
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+websockets>=12.0
+colorlog>=6.7.0
+pydantic>=2.0.0
+
+# Additional dependencies for HTTP and JSON handling
+# (most are included with fastapi/uvicorn but listed for clarity)
+typing-extensions>=4.8.0
