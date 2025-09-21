@@ -11,6 +11,7 @@ import urllib.error
 import typing
 import logging
 from abc import ABC, abstractmethod
+from browser_utils import get_browser_name, get_cross_platform_browser_args
 
 logger = logging.getLogger("CopilotClient.Base")
 
@@ -51,15 +52,18 @@ class BaseCopilotClient(ABC):
         await ws.send(json.dumps(msg))
         return current_id
 
-    async def _launch_edge_if_needed(self) -> bool:
+    async def _launch_browser_if_needed(self) -> bool:
         if self.edge_process and self.edge_process.poll() is None:
-            logger.debug("Edge process already running.")
+            logger.debug("Browser process already running.")
             return True
 
-        logger.info(f"Starting Edge: {self.edge_path} with remote debugging port {self.debugging_port}")
-        if platform.system() != "Windows":
-            logger.error("Platform is not Windows. This script is designed for Windows only.")
-            raise RuntimeError("This script is designed for Windows only.")
+        # Check if browser executable exists
+        if not os.path.isfile(self.edge_path):
+            logger.error(f"Browser executable not found at {self.edge_path}")
+            return False
+
+        browser_name = get_browser_name(self.edge_path)
+        logger.info(f"Starting {browser_name}: {self.edge_path} with remote debugging port {self.debugging_port}")
 
         if self.debug_profile_dir:
             if not os.path.exists(self.debug_profile_dir):
@@ -72,34 +76,27 @@ class BaseCopilotClient(ABC):
             else:
                 logger.debug(f"Debug profile directory already exists: {self.debug_profile_dir}")
         
-        edge_args = [
-            self.edge_path,
-            f"--remote-debugging-port={self.debugging_port}",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--no-restore-session-state", # Prevents restoring previous session
-            "--restore-last-session=false", # Double ensure no session restore
-            "--disable-session-crashed-bubble",
-            # "--auto-open-devtools-for-tabs", # Uncomment this line to automatically open DevTools for each new tab. Useful for debugging.
-        ]
-        if self.debug_profile_dir:
-            edge_args.append(f"--user-data-dir={self.debug_profile_dir}")
+        browser_args = get_cross_platform_browser_args(
+            self.edge_path, 
+            self.debugging_port, 
+            self.debug_profile_dir
+        )
 
         try:
-            self.edge_process = subprocess.Popen(edge_args)
-            await asyncio.sleep(5)  # Give Edge some time to start up
+            self.edge_process = subprocess.Popen(browser_args)
+            await asyncio.sleep(5)  # Give browser some time to start up
             if self.edge_process.poll() is not None:
-                logger.error(f"Edge process terminated unexpectedly after launch. Exit code: {self.edge_process.returncode}")
+                logger.error(f"{browser_name} process terminated unexpectedly after launch. Exit code: {self.edge_process.returncode}")
                 self.edge_process = None
                 return False
-            logger.info(f"Edge process started (PID: {self.edge_process.pid}).")
+            logger.info(f"{browser_name} process started (PID: {self.edge_process.pid}).")
             return True
         except FileNotFoundError:
-            logger.error(f"Edge executable not found at {self.edge_path}")
+            logger.error(f"{browser_name} executable not found at {self.edge_path}")
             self.edge_process = None
             return False
         except Exception as e:
-            logger.exception(f"Error starting Edge: {e}")
+            logger.exception(f"Error starting {browser_name}: {e}")
             self.edge_process = None
             return False
 
@@ -224,7 +221,7 @@ class BaseCopilotClient(ABC):
             logger.debug("Already connected to browser and attached to page target.")
             return True
 
-        if not await self._launch_edge_if_needed():
+        if not await self._launch_browser_if_needed():
             return False
         if not await self._connect_to_browser_cdp_ws():
             await self.close(error_context="Failed to connect to browser CDP WebSocket") # Cleanup Edge if CDP connection failed

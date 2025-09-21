@@ -7,9 +7,14 @@ WORKDIR /app
 # Set environment variables
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV DISPLAY=:99
 
-# Install system dependencies
+# Install system dependencies including Chromium browser
 RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg2 \
+    chromium \
+    xvfb \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
