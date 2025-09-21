@@ -1,7 +1,8 @@
 import os
 import tempfile
 from pydantic import BaseModel, Field
-from typing import Dict, Any
+from typing import Dict, Any, Optional
+from browser_utils import find_available_browser
 
 class CopilotSettings(BaseModel):
     """Individual Copilot type settings."""
@@ -19,9 +20,9 @@ class AppSettings(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8000
 
-    # Edge and CDP settings
-    edge_path: str = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe"
-    debug_profile_dir: str = Field(default_factory=lambda: os.path.join(tempfile.gettempdir(), "edge_debug_profile_temp"))
+    # Browser and CDP settings
+    edge_path: str = Field(default_factory=lambda: find_available_browser() or "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe")
+    debug_profile_dir: str = Field(default_factory=lambda: os.path.join(tempfile.gettempdir(), "browser_debug_profile_temp"))
     debugging_port: int = 9222
 
     # Standard Copilot specific settings
