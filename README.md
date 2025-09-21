@@ -195,3 +195,40 @@ These custom modes:
 After adding or modifying the [`.roomodes`](.roomodes:1) file and ensuring the corresponding system prompt files exist with your desired short prompts, Roo Code should automatically detect the new modes. You can then select "MS Copilot Gateway Assistant" or "MS Copilot Gateway Assistant (Japanese)" when interacting with this LLM.
 
 For more information on custom modes and system prompts, see the [Roo Code documentation](https://docs.roocode.com/features/custom-modes).
+
+## Docker Support
+
+This project includes Docker support for containerized deployment. Note that the Docker container is primarily intended for development and testing of the API layer, as the Microsoft Edge automation functionality requires Windows.
+
+### Building and Running with Docker
+
+1. **Build the Docker image:**
+   ```bash
+   docker build -t ms-copilot-gateway .
+   ```
+
+2. **Run the container:**
+   ```bash
+   docker run -p 8000:8000 ms-copilot-gateway
+   ```
+
+3. **Using Docker Compose (recommended):**
+   ```bash
+   docker-compose up -d
+   ```
+
+### Available Files
+
+- **`Dockerfile`**: Multi-stage Docker build configuration
+- **`docker-compose.yml`**: Docker Compose configuration for easy deployment
+- **`requirements.txt`**: Python dependencies for pip-based installations
+- **`.dockerignore`**: Files and directories to exclude from Docker build context
+
+### Important Notes
+
+- The Docker container runs on Linux and cannot execute Microsoft Edge automation
+- The container exposes the FastAPI server on port 8000
+- For full functionality, run the application directly on Windows with Microsoft Edge installed
+- The Docker setup is useful for API development, testing, and deployment of the server component
+
+For more information on custom modes and system prompts, see the [Roo Code documentation](https://docs.roocode.com/features/custom-modes).

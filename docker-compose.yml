@@ -1,0 +1,16 @@
+version: '3.8'
+
+services:
+  ms-copilot-gateway:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      # Mount a volume for configuration if needed
+      - ./config.py:/app/config.py:ro
+    restart: unless-stopped
+    # Note: This container will not work fully on Linux as it requires
+    # Microsoft Edge on Windows for the automation functionality.
+    # It can be used for development/testing of the API layer only.
